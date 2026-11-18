@@ -1417,18 +1417,18 @@ func parseChargebackEntries(alloc AllocationResponse, summary SummaryAllocationR
 			noRequests = u.e.CPUCoresRequested <= 0 && u.e.RAMBytesRequested <= 0
 		}
 		entries = append(entries, models.ChargebackEntry{
-			LabelValue:  labelVal,
-			CPUCost:     cost.cpu * monthlyMultiplier,
-			RAMCost:     cost.ram * monthlyMultiplier,
-			GPUCost:     cost.gpu * monthlyMultiplier,
-			StorageCost: cost.pv * monthlyMultiplier,
-			NetworkCost: cost.network * monthlyMultiplier,
-			LBCost:      cost.lb * monthlyMultiplier,
+			LabelValue:   labelVal,
+			CPUCost:      cost.cpu * monthlyMultiplier,
+			RAMCost:      cost.ram * monthlyMultiplier,
+			GPUCost:      cost.gpu * monthlyMultiplier,
+			StorageCost:  cost.pv * monthlyMultiplier,
+			NetworkCost:  cost.network * monthlyMultiplier,
+			LBCost:       cost.lb * monthlyMultiplier,
 			SharedCost:   cost.shared * monthlyMultiplier,
 			ExternalCost: cost.external * monthlyMultiplier,
-			TotalCost:   cost.total * monthlyMultiplier,
-			Efficiency:  efficiency,
-			NoRequests:  noRequests,
+			TotalCost:    cost.total * monthlyMultiplier,
+			Efficiency:   efficiency,
+			NoRequests:   noRequests,
 		})
 	}
 
