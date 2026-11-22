@@ -190,7 +190,7 @@ export const CostActual: React.FC<CostActualProps> = ({
       <p style={{ margin: '16px 0 0', color: t.textMuted, fontSize: '12px' }}>
         {atInstall
           ? 'These costs were measured with OpenCost when the service started, before the application synced. They are measured again after each sync.'
-          : 'Costs are measured after each sync with OpenCost.'}
+          : 'Costs are measured after each sync and again every day with OpenCost.'}
       </p>
     </div>
   );

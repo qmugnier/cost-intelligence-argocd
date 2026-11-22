@@ -83,6 +83,16 @@ type Config struct {
 	// 0 turns it off.
 	BackfillConcurrency int `envconfig:"BACKFILL_CONCURRENCY" default:"4"`
 
+	// RefreshInterval is how old an application's latest cost record may get before the service
+	// measures it again, whatever the syncs did. The check runs hourly, and also measures
+	// applications that still have no record. 0 turns the refresh off.
+	RefreshInterval time.Duration `envconfig:"REFRESH_INTERVAL" default:"24h"`
+
+	// ReconcileDays is how many of the last days of daily history are fetched again once a day, to
+	// pick up the corrections Kubecost makes to a day's cost up to 72 hours later. Used with
+	// COST_PROVIDER=kubecost only. 0 turns it off.
+	ReconcileDays int `envconfig:"RECONCILE_DAYS" default:"4"`
+
 	// PruneRemoteCost deletes the cost records and daily history stored for Argo CD Applications that
 	// deploy to another cluster, at startup and on each daily history run. It can't be undone.
 	PruneRemoteCost bool `envconfig:"PRUNE_REMOTE_COST" default:"false"`
@@ -231,6 +241,12 @@ func (c *Config) Validate() error {
 	}
 	if c.DailyHistoryDays < 0 {
 		return errors.New("DAILY_HISTORY_DAYS must not be negative; 0 turns daily cost history off")
+	}
+	if c.RefreshInterval < 0 || c.RefreshInterval > 0 && c.RefreshInterval < time.Hour {
+		return errors.New("REFRESH_INTERVAL must be at least 1h; 0 turns the daily refresh off")
+	}
+	if c.ReconcileDays < 0 {
+		return errors.New("RECONCILE_DAYS must not be negative; 0 turns re-recording the last days off")
 	}
 	if c.BackfillConcurrency < 0 {
 		return errors.New("BACKFILL_CONCURRENCY must not be negative; 0 turns the startup backfill off")

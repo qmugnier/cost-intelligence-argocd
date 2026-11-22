@@ -61,7 +61,13 @@ Right after a first deploy OpenCost often has no data for the namespace yet, and
 
 A fresh install would show nothing until every application had synced at least once, so when an API replica starts it lists the Argo CD Applications and measures each one that has no record yet, in the same way a sync would, including the retries while OpenCost has no data yet. The replicas take turns through a lock in the database, so OpenCost is asked about each namespace once and not once per replica. A record measured this way is labelled "Measured at install" on the tab, and since no sync came before it, it's never used as the baseline for a change since the last sync.
 
-### Every day
+### Every day, without a sync
+
+Syncs are not the only measurement: once an hour each API replica (one at a time, under the same lock) measures again the applications whose latest record is older than `REFRESH_INTERVAL`, 24 hours by default, and those still without a record. A namespace the cost backend has no data for is left alone, so a new one is picked up by a later hourly run, however long Kubecost takes to ingest it. The record is saved as `measured_on = 'daily'`, shown as "Refreshed" on the tab, and like an install record it is never the baseline of the change since the last sync.
+
+Kubecost reconciles each day with the cloud bill and reports it up to 72 hours later, so a day recorded when it ended can still change. With Kubecost the recorder fetches the last `RECONCILE_DAYS` days again once a day and stores the days that cost something over what it had. The Actual costs measure the last 24 hours, which are not reconciled; the Trends tab and the daily history carry the reconciled figures.
+
+### Every day, history
 
 OpenCost can only answer for the days its Prometheus still keeps, which is often 15. To keep a longer history, every API replica records once an hour the cost of each day that has ended, for every application that has a record, and keeps those days for 400 days by default. The Trends tab reads the stored days and goes to OpenCost only for the days that haven't been recorded yet, such as today. Two replicas may record the same day at the same time, but they store the same figures and a day is written as an upsert, so the job doesn't need a leader.
 

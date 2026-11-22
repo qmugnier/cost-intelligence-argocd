@@ -151,6 +151,16 @@ func (s *fakeStore) SaveFirstActual(_ context.Context, actual *models.CostActual
 	return true, nil
 }
 
+func (s *fakeStore) SaveActual(_ context.Context, actual *models.CostActual) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.held {
+		return errors.New("saved without the lock")
+	}
+	s.records[ref(actual)] = actual
+	return nil
+}
+
 func (s *fakeStore) DeleteMeasurements(_ context.Context, app models.AppRef) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -515,4 +525,45 @@ func refs(s *fakeStore) []models.AppRef {
 		out = append(out, r)
 	}
 	return out
+}
+
+func TestRefresh_MeasuresAgainOnlyRecordsOlderThanTheInterval(t *testing.T) {
+	t.Parallel()
+
+	stale := &models.CostActual{ID: "old", ApplicationNamespace: "argocd", ApplicationName: "stale", MeasuredOn: models.MeasuredOnSync, MeasuredAt: time.Now().Add(-30 * time.Hour)}
+	fresh := &models.CostActual{ID: "new", ApplicationNamespace: "argocd", ApplicationName: "fresh", MeasuredOn: models.MeasuredOnSync, MeasuredAt: time.Now().Add(-time.Hour)}
+	store := newFakeStore(stale, fresh)
+	oc := &fakeOpenCost{pods: map[string][]pod{
+		"stale-ns": {{"a-1", "deployment", "a", 2}},
+		"fresh-ns": {{"b-1", "deployment", "b", 2}},
+		"added":    {{"c-1", "deployment", "c", 2}},
+	}}
+	b := newBackfill(t, oc, store, 2,
+		app("stale", local("stale-ns"), deployment("stale-ns", "a")),
+		app("fresh", local("fresh-ns"), deployment("fresh-ns", "b")),
+		app("added", local("added"), deployment("added", "c")),
+	)
+
+	result, err := b.Refresh(context.Background(), 20*time.Hour)
+	require.NoError(t, err)
+
+	assert.Equal(t, Result{Refreshed: 1, Saved: 1, Recorded: 1}, result)
+	assert.Equal(t, models.MeasuredOnDaily, store.records[models.AppRef{Namespace: "argocd", Name: "stale"}].MeasuredOn)
+	assert.Same(t, fresh, store.records[models.AppRef{Namespace: "argocd", Name: "fresh"}])
+	assert.Equal(t, models.MeasuredOnInstall, store.records[models.AppRef{Namespace: "argocd", Name: "added"}].MeasuredOn)
+	assert.Equal(t, map[string]int{"stale-ns": 1, "added": 1}, oc.queries)
+}
+
+func TestRefresh_KeepsTheLastRecordWhenTheNamespaceHasNoDataNow(t *testing.T) {
+	t.Parallel()
+
+	stale := &models.CostActual{ID: "old", ApplicationNamespace: "argocd", ApplicationName: "stale", MeasuredOn: models.MeasuredOnSync, MeasuredAt: time.Now().Add(-30 * time.Hour)}
+	store := newFakeStore(stale)
+	b := newBackfill(t, &fakeOpenCost{pods: map[string][]pod{}}, store, 1, app("stale", local("gone")))
+
+	result, err := b.Refresh(context.Background(), 20*time.Hour)
+	require.NoError(t, err)
+
+	assert.Equal(t, Result{NoData: 1}, result)
+	assert.Same(t, stale, store.records[models.AppRef{Namespace: "argocd", Name: "stale"}])
 }

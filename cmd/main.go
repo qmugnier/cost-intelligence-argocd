@@ -183,6 +183,9 @@ func runAPI(cfg *config.Config, logger *log.Logger) {
 	var recorder *history.Recorder
 	if cfg.DailyHistoryDays > 0 {
 		recorder = history.NewRecorder(costStorage, opencostClient, cfg.DailyHistoryDays, logger).WithScope(measured).WithRetention(cfg.RetentionDays())
+		if cfg.CostProvider == config.ProviderKubecost {
+			recorder.WithReconcile(cfg.ReconcileDays)
+		}
 		if applications != nil {
 			recorder.WithApplications(applications)
 			if cfg.PruneRemoteCost {
@@ -211,6 +214,12 @@ func runAPI(cfg *config.Config, logger *log.Logger) {
 			b.PruneRemote()
 		}
 		go runBackfill(background, b, recorder, logger)
+		if cfg.RefreshInterval > 0 {
+			go runRefresh(background, b, cfg.RefreshInterval, recorder, logger)
+			logger.Printf("Measuring each application again when its latest record is older than %s\n", cfg.RefreshInterval)
+		} else {
+			logger.Print("Daily refresh disabled (REFRESH_INTERVAL=0)")
+		}
 	}
 
 	servers := []*http.Server{{
@@ -292,6 +301,41 @@ func runBackfill(ctx context.Context, b *backfill.Backfill, recorder *history.Re
 			recorder.RecordSoon()
 		}
 	})
+}
+
+// refreshCheck is how often runRefresh looks for records older than the refresh interval.
+const refreshCheck = time.Hour
+
+// runRefresh measures again, every refreshCheck, the applications whose latest record is older than
+// after, and those still without one. Costs then refresh daily whatever the syncs do; the startup
+// backfill's own retries cover the first minutes.
+func runRefresh(ctx context.Context, b *backfill.Backfill, after time.Duration, recorder *history.Recorder, logger *log.Logger) {
+	ticker := time.NewTicker(refreshCheck)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		runCtx, cancel := context.WithTimeout(ctx, backfill.RunTimeout)
+		result, err := b.Refresh(runCtx, after)
+		cancel()
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			logger.Printf("Daily refresh: %v\n", err)
+			continue
+		}
+		if result.Refreshed+result.Saved+result.NoData+result.Failed > 0 {
+			logger.Printf("Daily refresh: %d measured again, %d first records, %d in namespaces with no data yet, %d failed\n",
+				result.Refreshed, result.Saved, result.NoData, result.Failed)
+		}
+		if result.Saved > 0 && recorder != nil {
+			recorder.RecordSoon()
+		}
+	}
 }
 
 // runExporter exports every Argo CD Application's cost to Prometheus. It runs as a single replica:

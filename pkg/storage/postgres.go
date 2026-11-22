@@ -357,10 +357,10 @@ func (p *PostgresCostStorage) GetLatestActual(ctx context.Context, app models.Ap
 	return &actual, nil
 }
 
-// clearInstallSync zeroes the sync timestamp of a measurement taken at install: the column holds its
-// measurement time, but it follows no sync.
+// clearInstallSync zeroes the sync timestamp of a measurement taken at install or by the daily
+// refresh: the column holds its measurement time, but it follows no sync.
 func clearInstallSync(actual *models.CostActual) {
-	if actual.MeasuredOn == models.MeasuredOnInstall {
+	if !models.FollowsSync(actual.MeasuredOn) {
 		actual.SyncTimestamp = time.Time{}
 	}
 }

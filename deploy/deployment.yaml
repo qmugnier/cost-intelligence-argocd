@@ -85,6 +85,12 @@ spec:
         # record; 0 turns the backfill off. Uses the Application read rule in rbac.yaml.
         - name: BACKFILL_CONCURRENCY
           value: "4"
+        # Measure an application again when its latest record is older than this; 0 turns it off.
+        - name: REFRESH_INTERVAL
+          value: "24h"
+        # Kubecost only: last days of daily history fetched again each day, for late corrections.
+        - name: RECONCILE_DAYS
+          value: "4"
         # Delete the stored cost of Applications that deploy to another cluster; can't be undone.
         - name: PRUNE_REMOTE_COST
           value: "false"

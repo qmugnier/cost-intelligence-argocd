@@ -88,6 +88,15 @@
           "description": "Applications measured at once at startup (BACKFILL_CONCURRENCY). 0 turns the backfill off.",
           "minimum": 0
         },
+        "refreshInterval": {
+          "type": ["string", "integer"],
+          "description": "Measure an application again when its latest record is older than this (REFRESH_INTERVAL). 0 turns it off."
+        },
+        "reconcileDays": {
+          "type": "integer",
+          "description": "Kubecost only: last days of daily history fetched again each day (RECONCILE_DAYS). 0 turns it off.",
+          "minimum": 0
+        },
         "pruneRemoteCost": {
           "type": "boolean",
           "description": "Delete cost stored for Applications on another cluster (PRUNE_REMOTE_COST). Can't be undone."

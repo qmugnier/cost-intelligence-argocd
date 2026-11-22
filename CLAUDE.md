@@ -75,7 +75,9 @@ These are the invariants most likely to be broken by a well-meant change.
 
 **Storage behind an interface.** Depend on `storage.CostStorage`, never on the PostgreSQL type. Schema changes are numbered up/down migrations in `pkg/storage/migrations/`.
 
-**Measured at install.** Only a sync or the startup backfill writes `cost_actuals`. A backfilled record has `measured_on = 'install'` and no sync timestamp in the API (the column holds its measurement time, so older replicas can still read it during a rollout); it is only ever a first record (`SaveFirstActual`), and it is never the baseline of a change since the last sync (`measuredAtInstall` in the UI); anomalies may still use it.
+**Measured at install and daily.** Only a sync, the startup backfill or its hourly refresh writes `cost_actuals`. A refresh record (`measured_on = 'daily'`, written when the latest record is older than `REFRESH_INTERVAL`) is treated like an install record: no sync timestamp, never a baseline (`measuredAfterSync` in the UI, `models.FollowsSync`). With Kubecost, `history.Recorder` also re-fetches the last `RECONCILE_DAYS` days once a day, because Kubecost reconciles a day up to 72h late.
+
+**Measured at install.** A backfilled record has `measured_on = 'install'` and no sync timestamp in the API (the column holds its measurement time, so older replicas can still read it during a rollout); it is only ever a first record (`SaveFirstActual`), and it is never the baseline of a change since the last sync (`measuredAtInstall` in the UI); anomalies may still use it.
 
 **Daily history.** OpenCost keeps only the days its Prometheus retains, so `history.Recorder` stores each app's cost per UTC day in `cost_daily` (progress in `cost_daily_progress`). Days are stored with their scope and never served in another. `DAILY_HISTORY_DAYS` (default 400, `0` = off) bounds retention.
 

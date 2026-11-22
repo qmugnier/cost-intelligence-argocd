@@ -435,3 +435,23 @@ func TestRecordOnce_RetentionDoesNotPruneWhatIsAlreadyStored(t *testing.T) {
 
 	assert.Contains(t, store.storedDates(web), "2026-08-01", "history older than the source's is what DAILY_HISTORY_DAYS keeps")
 }
+
+func TestRecordOnce_FetchesTheLastDaysAgainOnceADayToPickUpCorrections(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore(record(web, "shop", webDeploy))
+	store.progress[web] = models.DailyProgress{Through: "2026-10-02", Scope: models.ScopeApplication}
+	require.NoError(t, store.SaveDailyCosts(context.Background(), web, "shop", models.ScopeApplication,
+		[]models.DailyCost{{Date: "2026-10-01", TotalCost: 5}, {Date: "2026-09-20", TotalCost: 7}}))
+	source := &fakeOpenCost{costs: costsFrom("shop", "2026-09-20", "2026-10-03", 2)}
+	recorder := newTestRecorder(store, source, "2026-10-03T12:00:00Z").WithReconcile(3)
+
+	require.NoError(t, recorder.RecordOnce(context.Background()))
+
+	assert.Equal(t, []call{{"shop", "2026-09-30", "2026-10-02", models.ScopeApplication}}, source.calls)
+	assert.InDelta(t, 2, store.days[web]["2026-10-01"].cost.TotalCost, 0, "the corrected day replaces the one recorded when it ended")
+	assert.InDelta(t, 7, store.days[web]["2026-09-20"].cost.TotalCost, 0, "older days are left alone")
+
+	require.NoError(t, recorder.RecordOnce(context.Background()))
+	assert.Len(t, source.calls, 1, "once per UTC day")
+}
