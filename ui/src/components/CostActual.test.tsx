@@ -188,7 +188,7 @@ describe('CostActual', () => {
       );
 
       expect(stat('Since last sync')).toEqual({ value: '—', detail: 'No earlier measurement' });
-      expect(screen.getByText('Costs are measured after each sync with OpenCost.')).toBeTruthy();
+      expect(screen.getByText('Costs are measured after each sync and again every day with OpenCost.')).toBeTruthy();
     });
   });
 

@@ -16,7 +16,7 @@ type CostActual struct {
 	// taken at install, which follows no sync.
 	SyncTimestamp time.Time `json:"syncTimestamp,omitzero"`
 	MeasuredAt    time.Time `json:"measuredAt"`
-	// MeasuredOn says what took the measurement: MeasuredOnSync or MeasuredOnInstall.
+	// MeasuredOn says what took the measurement: MeasuredOnSync, MeasuredOnInstall or MeasuredOnDaily.
 	MeasuredOn       string                `json:"measuredOn"`
 	TotalMonthlyCost float64               `json:"totalMonthlyCost"`
 	Resources        []ResourceCostActual  `json:"resources"`
@@ -51,7 +51,17 @@ const (
 	// MeasuredOnInstall marks a measurement the startup backfill took for an application that had no
 	// record. It follows no sync, so it is never the baseline of a change since the last sync.
 	MeasuredOnInstall = "install"
+	// MeasuredOnDaily marks a measurement the daily refresh took for an application that already had
+	// a record. Like an install measurement it follows no sync, so it is never the baseline of a
+	// change since the last sync.
+	MeasuredOnDaily = "daily"
 )
+
+// FollowsSync reports whether a measurement taken as measuredOn came right after a sync, so it has
+// a sync timestamp and can be the baseline of a change since the last sync.
+func FollowsSync(measuredOn string) bool {
+	return measuredOn != MeasuredOnInstall && measuredOn != MeasuredOnDaily
+}
 
 const (
 	// ScopeApplication marks figures that cover only the pods the application's controllers own.

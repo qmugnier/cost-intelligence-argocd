@@ -154,6 +154,10 @@ spec:
           value: {{ .Values.costIntelligence.dailyHistoryDays | quote }}
         - name: BACKFILL_CONCURRENCY
           value: {{ .Values.costIntelligence.backfillConcurrency | quote }}
+        - name: REFRESH_INTERVAL
+          value: {{ .Values.costIntelligence.refreshInterval | quote }}
+        - name: RECONCILE_DAYS
+          value: {{ .Values.costIntelligence.reconcileDays | quote }}
         - name: PRUNE_REMOTE_COST
           value: {{ .Values.costIntelligence.pruneRemoteCost | quote }}
         - name: VPA_ENABLED

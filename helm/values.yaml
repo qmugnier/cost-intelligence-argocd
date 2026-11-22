@@ -50,6 +50,15 @@ costIntelligence:
   # Replicas take turns, so OpenCost sees this many queries at most. 0 turns the backfill off.
   backfillConcurrency: 4
 
+  # Measure an application again when its latest cost record is older than this, so costs refresh
+  # daily even without a sync (REFRESH_INTERVAL; at least 1h, 0 turns it off). The new record never
+  # replaces a sync as the baseline of "change since last sync".
+  refreshInterval: 24h
+
+  # With Kubecost, the last days of daily history fetched again once a day, because Kubecost corrects
+  # a day's cost up to 72 hours later (RECONCILE_DAYS). 0 turns it off.
+  reconcileDays: 4
+
   # Delete the cost records and daily history stored for Applications that deploy to another
   # cluster, when the service starts and on each daily history run (PRUNE_REMOTE_COST). These
   # Applications are never measured, but cost stored before they were skipped priced a namespace of

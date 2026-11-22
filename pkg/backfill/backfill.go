@@ -41,6 +41,7 @@ var RetryDelays = []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute,
 type Store interface {
 	ListLatestActuals(ctx context.Context) ([]models.CostActual, error)
 	SaveFirstActual(ctx context.Context, actual *models.CostActual) (bool, error)
+	SaveActual(ctx context.Context, actual *models.CostActual) error
 	Lock(ctx context.Context, name string) (unlock func(), err error)
 	DeleteMeasurements(ctx context.Context, app models.AppRef) (bool, error)
 }
@@ -49,6 +50,8 @@ type Store interface {
 type Result struct {
 	// Saved got their first record.
 	Saved int
+	// Refreshed already had a record, and got a new one from a daily refresh.
+	Refreshed int
 	// Recorded already had a record, or got one from a sync during the run.
 	Recorded int
 	// Remote deploy to a cluster other than the one OpenCost measures.
@@ -66,6 +69,7 @@ type Result struct {
 
 func (r *Result) add(o Result) {
 	r.Saved += o.Saved
+	r.Refreshed += o.Refreshed
 	r.Recorded += o.Recorded
 	r.Remote += o.Remote
 	r.Removed += o.Removed
@@ -113,6 +117,18 @@ func (b *Backfill) PruneRemote() *Backfill {
 // that fails is counted in Result.Failed rather than returned; the error is for what stops the
 // whole run.
 func (b *Backfill) Run(ctx context.Context) (Result, error) {
+	return b.run(ctx, 0)
+}
+
+// Refresh is a run that also measures again the Applications whose latest record is older than
+// after, saving a MeasuredOnDaily record beside the sync ones, which stay the baselines of a change
+// since the last sync. A namespace with no data keeps its last record. Applications without a record,
+// such as new ones the cost backend has only just seen, are measured as in Run.
+func (b *Backfill) Refresh(ctx context.Context, after time.Duration) (Result, error) {
+	return b.run(ctx, after)
+}
+
+func (b *Backfill) run(ctx context.Context, after time.Duration) (Result, error) {
 	unlock, err := b.store.Lock(ctx, lockName)
 	if err != nil {
 		return Result{}, fmt.Errorf("taking the backfill lock: %w", err)
@@ -128,8 +144,12 @@ func (b *Backfill) Run(ctx context.Context) (Result, error) {
 		return Result{}, fmt.Errorf("listing cost records: %w", err)
 	}
 
+	has := make(map[models.AppRef]bool, len(recorded))
+	for _, r := range recorded {
+		has[models.AppRef{Namespace: r.ApplicationNamespace, Name: r.ApplicationName}] = true
+	}
 	var result Result
-	byNamespace, stale := b.pending(apps, recorded, &result)
+	byNamespace, stale := b.pending(apps, recorded, after, time.Now(), &result)
 	if !b.pruneRemote {
 		stale = nil
 	}
@@ -175,7 +195,7 @@ func (b *Backfill) Run(ctx context.Context) (Result, error) {
 				<-sem
 				wg.Done()
 			}()
-			counts := b.measure(ctx, u, byNamespace[u], apps)
+			counts := b.measure(ctx, u, byNamespace[u], apps, has)
 			mu.Lock()
 			result.add(counts)
 			mu.Unlock()
@@ -213,10 +233,13 @@ func (b *Backfill) RunWithRetries(ctx context.Context, delays []time.Duration, r
 // pending groups the Applications to measure by the namespace they deploy to, and counts the others in
 // result by why they are left out. stale are the Applications deploying to another cluster that have
 // a cost record anyway, stored before such Applications were skipped.
-func (b *Backfill) pending(apps []exporter.Application, recorded []models.CostActual, result *Result) (byNamespace map[unit][]exporter.Application, stale []models.AppRef) {
+func (b *Backfill) pending(apps []exporter.Application, recorded []models.CostActual, after time.Duration, now time.Time, result *Result) (byNamespace map[unit][]exporter.Application, stale []models.AppRef) {
 	has := make(map[models.AppRef]bool, len(recorded))
+	due := map[models.AppRef]bool{}
 	for _, r := range recorded {
-		has[models.AppRef{Namespace: r.ApplicationNamespace, Name: r.ApplicationName}] = true
+		ref := models.AppRef{Namespace: r.ApplicationNamespace, Name: r.ApplicationName}
+		has[ref] = true
+		due[ref] = after > 0 && now.Sub(r.MeasuredAt) >= after
 	}
 	byNamespace = map[unit][]exporter.Application{}
 	for _, app := range apps {
@@ -229,7 +252,7 @@ func (b *Backfill) pending(apps []exporter.Application, recorded []models.CostAc
 			if has[app.Ref] {
 				stale = append(stale, app.Ref)
 			}
-		case has[app.Ref]:
+		case has[app.Ref] && !(due[app.Ref] && ns != "" && validation.IsValidNamespace(ns)):
 			result.Recorded++
 		case ns == "" || !validation.IsValidNamespace(ns):
 			// The sync hook falls back to the Application's own namespace, where it does not deploy.
@@ -242,8 +265,9 @@ func (b *Backfill) pending(apps []exporter.Application, recorded []models.CostAc
 }
 
 // measure measures one namespace and saves the first record of each Application deploying there. all
-// are every Application, to tell whether one is the only one deploying to the namespace.
-func (b *Backfill) measure(ctx context.Context, u unit, apps, all []exporter.Application) Result {
+// are every Application, to tell whether one is the only one deploying to the namespace. has are
+// the Applications with a record, which get a refreshed one instead of a first one.
+func (b *Backfill) measure(ctx context.Context, u unit, apps, all []exporter.Application, has map[models.AppRef]bool) Result {
 	var result Result
 	namespace := u.namespace
 	measured, err := hook.MeasureNamespace(opencost.WithCluster(ctx, u.cluster), b.client, namespace, b.logger)
@@ -263,6 +287,16 @@ func (b *Backfill) measure(ctx context.Context, u unit, apps, all []exporter.App
 		owners := app.Workloads
 		if owners == nil {
 			owners = models.ManagedResources{}
+		}
+		if has[app.Ref] {
+			actual := measured.Record(app.Ref, owners, time.Time{}, models.MeasuredOnDaily)
+			if err := b.store.SaveActual(ctx, actual); err != nil {
+				b.logger.Printf("Backfill: saving the refreshed %s: %v", app.Ref, err)
+				result.Failed++
+			} else {
+				result.Refreshed++
+			}
+			continue
 		}
 		actual := measured.Record(app.Ref, owners, time.Time{}, models.MeasuredOnInstall)
 		saved, err := b.store.SaveFirstActual(ctx, actual)

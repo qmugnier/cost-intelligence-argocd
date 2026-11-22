@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/OctopusDeploy/cost-intelligence-argocd/pkg/exporter"
@@ -64,6 +65,11 @@ type Recorder struct {
 	pruneRemote bool
 	// observe, when set, is told when each run finishes and with what error.
 	observe func(at time.Time, err error)
+	// reconcileDays is how many of the last days each application re-records once a day, for the
+	// corrections the source makes up to 72 hours late. 0 for none.
+	reconcileDays int
+	mu            sync.Mutex
+	reconciled    map[models.AppRef]string
 	// wake asks Run for a run before the next tick.
 	wake chan struct{}
 }
@@ -99,6 +105,15 @@ func (r *Recorder) WithApplications(applications exporter.ApplicationLister) *Re
 // Kubecost does: no query reaches back further or spans more, and what is already stored is kept.
 func (r *Recorder) WithRetention(days int) *Recorder {
 	r.retentionDays = days
+	return r
+}
+
+// WithReconcile has each application fetch its last days again once a day, and store those that cost
+// something over what is stored. Kubecost reconciles a day's cost with the cloud bill up to 72 hours
+// after it, so a day recorded when it ended is later corrected; days is how many to cover (4 spans
+// 72 hours from any time of the day). A day the source answers with no cost is left as stored.
+func (r *Recorder) WithReconcile(days int) *Recorder {
+	r.reconcileDays = days
 	return r
 }
 
@@ -282,6 +297,48 @@ func (r *Recorder) recordApp(ctx context.Context, record *models.CostActual, ear
 			return err
 		}
 	}
+	return r.reconcile(ctx, target, scope, earliest, last)
+}
+
+// reconcile fetches the last reconcileDays days again, once per UTC day for each application, and
+// stores those with a cost: the upsert replaces what was recorded before the source's corrections.
+// A failure is retried on the next run.
+func (r *Recorder) reconcile(ctx context.Context, target Target, scope string, earliest, last time.Time) error {
+	if r.reconcileDays <= 0 {
+		return nil
+	}
+	today := formatDay(last)
+	r.mu.Lock()
+	done := r.reconciled[target.App] == today
+	r.mu.Unlock()
+	if done {
+		return nil
+	}
+	start := maxDay(last.AddDate(0, 0, -(r.reconcileDays-1)), earliest)
+	if start.After(last) {
+		return nil
+	}
+	days, err := r.fetch(ctx, target, start, last)
+	if err != nil {
+		return err
+	}
+	var costed []models.DailyCost
+	for _, day := range days {
+		if day.TotalCost != 0 {
+			costed = append(costed, day)
+		}
+	}
+	if len(costed) > 0 {
+		if err := r.store.SaveDailyCosts(ctx, target.App, target.Namespace, scope, costed); err != nil {
+			return err
+		}
+	}
+	r.mu.Lock()
+	if r.reconciled == nil {
+		r.reconciled = map[models.AppRef]string{}
+	}
+	r.reconciled[target.App] = today
+	r.mu.Unlock()
 	return nil
 }
 

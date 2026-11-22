@@ -506,3 +506,23 @@ func TestValidate_APIKeyHeaderName(t *testing.T) {
 
 	assert.ErrorContains(t, cfg.validateCostBackend(), "not a valid header name")
 }
+
+func TestValidate_RefreshAndReconcileSettings(t *testing.T) {
+	t.Parallel()
+
+	base := func() Config {
+		return Config{Database: DatabaseConfig{Password: "secret"}, WebhookSecret: testWebhookSecret, OpenCost: OpenCostConfig{BaseURL: "http://opencost:9003"}}
+	}
+
+	cfg := base()
+	cfg.RefreshInterval = 30 * time.Minute
+	require.ErrorContains(t, cfg.Validate(), "REFRESH_INTERVAL")
+
+	cfg = base()
+	cfg.ReconcileDays = -1
+	require.ErrorContains(t, cfg.Validate(), "RECONCILE_DAYS")
+
+	cfg = base()
+	cfg.RefreshInterval = 24 * time.Hour
+	require.NoError(t, cfg.Validate())
+}

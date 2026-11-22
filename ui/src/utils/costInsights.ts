@@ -10,18 +10,26 @@ export interface CostChange {
 }
 
 // measuredAtInstall reports whether a record was measured when the service started rather than after a
-// sync. Such a record is never the baseline of a change since the last sync.
+// sync. Such a record is never the baseline of a change since the last sync, and has none to compare with.
 export const measuredAtInstall = (record: CostData) => record.measuredOn === 'install';
+
+// measuredAfterSync reports whether a record was measured right after a sync. The daily refresh's
+// records and install records are not: they never serve as the baseline of a change since the last sync.
+export const measuredAfterSync = (record: CostData) => record.measuredOn !== 'install' && record.measuredOn !== 'daily';
+
+// measuredByRefresh reports whether the service's daily refresh took the record, with no sync before it.
+export const measuredByRefresh = (record: CostData) => record.measuredOn === 'daily';
 
 // previousMeasurement finds the most recent measurement taken after a sync before `latest`. The API
 // returns history newest first and it can include the latest record itself, so the lookup goes by
-// timestamp. Measurements taken at install are skipped: they are not a sync to compare with.
+// timestamp. Measurements not taken after a sync (at install, or by the daily refresh) are skipped:
+// they are not a sync to compare with.
 export function previousMeasurement(latest: CostData, history: CostData[]): CostData | null {
   const latestTime = Date.parse(latest.measuredAt);
   let previous: CostData | null = null;
   let previousTime = -Infinity;
   for (const record of history) {
-    if (measuredAtInstall(record)) continue;
+    if (!measuredAfterSync(record)) continue;
     const time = Date.parse(record.measuredAt);
     if (time < latestTime && time > previousTime) {
       previous = record;
@@ -32,15 +40,16 @@ export function previousMeasurement(latest: CostData, history: CostData[]): Cost
 }
 
 // changeSinceLastSync compares the latest measurement with the previous one. Returns null without an
-// earlier, non-zero measurement taken after a sync, or when the latest was taken at install.
+// earlier, non-zero measurement taken after a sync, or when the latest was taken at install. A daily
+// refresh as the latest is compared with the last sync's measurement.
 export function changeSinceLastSync(latest: CostData, history: CostData[]): CostChange | null {
   return costChange(latest, previousMeasurement(latest, history));
 }
 
 // costChange compares two measurements. Returns null without a previous, non-zero measurement, or when
-// either was taken at install rather than after a sync.
+// the previous was not taken after a sync, or the latest was taken at install.
 export function costChange(latest: CostData, previous: CostData | null): CostChange | null {
-  if (!previous || previous.totalMonthlyCost <= 0 || measuredAtInstall(latest) || measuredAtInstall(previous)) return null;
+  if (!previous || previous.totalMonthlyCost <= 0 || measuredAtInstall(latest) || !measuredAfterSync(previous)) return null;
   return {
     previous: previous.totalMonthlyCost,
     fraction: (latest.totalMonthlyCost - previous.totalMonthlyCost) / previous.totalMonthlyCost,

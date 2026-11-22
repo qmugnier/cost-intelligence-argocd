@@ -136,7 +136,8 @@ const Freshness: React.FC<FreshnessProps> = ({ tab, data, dailyCosts }) => {
       measuredAt={data.measuredAt}
       measuredHours={measuredHours}
       atInstall={data.measuredOn === 'install'}
-      title={`Measured with OpenCost ${data.measuredOn === 'install' ? 'at install, before the application synced' : 'after the latest sync'}, ${new Date(data.measuredAt).toLocaleString()}.${partial}`}
+      refreshed={data.measuredOn === 'daily'}
+      title={`Measured with OpenCost ${data.measuredOn === 'install' ? 'at install, before the application synced' : data.measuredOn === 'daily' ? 'by the daily refresh' : 'after the latest sync'}, ${new Date(data.measuredAt).toLocaleString()}.${partial}`}
     />
   );
 };

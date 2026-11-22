@@ -46,6 +46,16 @@ describe('changeSinceLastSync', () => {
     expect(changeSinceLastSync(latest, [latest, atInstall])).toBeNull();
   });
 
+  it('never compares with a daily refresh, but compares a daily refresh with the last sync', () => {
+    const daily = { ...measurement('2026-09-01T14:48:42Z', 3525.9), measuredOn: 'daily' as const };
+    const sync = measurement('2026-08-31T00:00:00Z', 500);
+
+    expect(changeSinceLastSync(latest, [daily, sync])?.previous).toBe(500);
+    const refreshed = { ...latest, measuredOn: 'daily' as const };
+    expect(changeSinceLastSync(refreshed, [sync])?.previous).toBe(500);
+    expect(changeSinceLastSync(refreshed, [daily])).toBeNull();
+  });
+
   it('has no change when the latest measurement was taken at install', () => {
     const atInstall = { ...latest, measuredOn: 'install' as const };
 
