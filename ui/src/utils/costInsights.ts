@@ -1,4 +1,4 @@
-import { CostData, EfficiencyMetrics, PodCost } from './api';
+import { CostData, EfficiencyMetrics, MonthCost, PodCost } from './api';
 import { isPartialMeasurement } from './format';
 import { ControllerGroup, groupPodsByController } from './podGroups';
 
@@ -19,6 +19,29 @@ export const measuredAfterSync = (record: CostData) => record.measuredOn !== 'in
 
 // measuredByRefresh reports whether the service's daily refresh took the record, with no sync before it.
 export const measuredByRefresh = (record: CostData) => record.measuredOn === 'daily';
+
+// RunRateGap compares the latest measurement (the last 24 hours) with the run rate of the last complete
+// days, which a cost backend such as Kubecost has reconciled with the cloud bill.
+export interface RunRateGap {
+  // monthly is the daily run rate of the last complete days projected onto 30 days.
+  monthly: number;
+  // fraction is how far the latest measurement is from it, signed: 0.2 is 20% above.
+  fraction: number;
+  // notable says the gap is big enough to mention.
+  notable: boolean;
+}
+
+// RUN_RATE_GAP is the relative gap from which the latest measurement and the run rate are said to differ.
+export const RUN_RATE_GAP = 0.15;
+
+// runRateGap compares the Kubernetes cost of the latest measurement with month's run rate. Null without
+// at least 3 complete days behind the run rate, or without a cost to compare.
+export function runRateGap(kubernetes: number, month: Pick<MonthCost, 'dailyRunRate' | 'runRateDays'> | null): RunRateGap | null {
+  if (!month || month.runRateDays < 3 || month.dailyRunRate <= 0 || kubernetes <= 0) return null;
+  const monthly = month.dailyRunRate * 30;
+  const fraction = (kubernetes - monthly) / monthly;
+  return { monthly, fraction, notable: Math.abs(fraction) >= RUN_RATE_GAP };
+}
 
 // previousMeasurement finds the most recent measurement taken after a sync before `latest`. The API
 // returns history newest first and it can include the latest record itself, so the lookup goes by
