@@ -22,6 +22,8 @@ import {
   measuredAtInstall,
   previousMeasurement,
   recommendCpuRequest,
+  runRateGap,
+  RunRateGap,
   SharedNamespace,
   sharedNamespace,
 } from '../utils/costInsights';
@@ -85,6 +87,9 @@ export const CostActual: React.FC<CostActualProps> = ({
   const kubernetes = latest.totalMonthlyCost;
   const cloud = data.cloudEstimate?.totalMonthlyCost ?? 0;
   const change = costChange(latest, previous);
+  // The monthly cost is the last 24 hours; the month's run rate is the last complete days, which the
+  // cost backend has reconciled with the cloud bill.
+  const gap = runRateGap(kubernetes, month);
   const drivers = previous ? changeDrivers(latest, previous) : null;
   const efficiency = data.efficiency;
   const idle = efficiency ? efficiency.cpuIdleCost + efficiency.ramIdleCost : null;
@@ -148,7 +153,7 @@ export const CostActual: React.FC<CostActualProps> = ({
                 {
                   label: 'This month',
                   value: formatMoney(month.projected),
-                  detail: `${formatMoney(month.toDate)} so far, day ${month.daysElapsed} of ${month.daysInMonth}`,
+                  detail: monthDetail(month, gap),
                 },
               ]
             : []),
@@ -195,6 +200,14 @@ export const CostActual: React.FC<CostActualProps> = ({
     </div>
   );
 };
+
+function monthDetail(month: MonthCost, gap: RunRateGap | null): string {
+  const base = `${formatMoney(month.toDate)} so far, day ${month.daysElapsed} of ${month.daysInMonth}`;
+  if (!gap) return base;
+  const rate = `7-day rate ${formatMoney(gap.monthly)}/mo`;
+  if (!gap.notable) return `${base} · ${rate}`;
+  return `${base} · ${rate}; last 24h is ${formatPercent(Math.abs(gap.fraction))} ${gap.fraction > 0 ? 'above' : 'below'} it`;
+}
 
 function idleDetail(idle: number | null, namespaceCost: number, shared: SharedNamespace | null): string {
   if (idle === null) return 'Efficiency not measured';

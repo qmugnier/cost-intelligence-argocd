@@ -8,6 +8,7 @@ import {
   NOT_TIED_TO_A_POD,
   previousMeasurement,
   recommendCpuRequest,
+  runRateGap,
   scopeToApp,
   sharedNamespace,
 } from './costInsights';
@@ -360,5 +361,27 @@ describe('recommendCpuRequest', () => {
     expect(recommendCpuRequest(efficiency, 1, 24)).toBeNull();
     expect(recommendCpuRequest(undefined, 325.5, 24)).toBeNull();
     expect(recommendCpuRequest({ ...efficiency, cpuCoresRequested: 0 }, 325.5, 24)).toBeNull();
+  });
+});
+
+describe('runRateGap', () => {
+  const month = { dailyRunRate: 10, runRateDays: 7 };
+
+  it('compares the latest monthly cost with the run rate of the last complete days over 30 days', () => {
+    const gap = runRateGap(360, month);
+
+    expect(gap?.monthly).toBe(300);
+    expect(gap?.fraction).toBeCloseTo(0.2);
+    expect(gap?.notable).toBe(true);
+  });
+
+  it('does not call a small gap notable', () => {
+    expect(runRateGap(310, month)?.notable).toBe(false);
+  });
+
+  it('has nothing to compare with fewer than 3 complete days, or without a cost', () => {
+    expect(runRateGap(360, { dailyRunRate: 10, runRateDays: 2 })).toBeNull();
+    expect(runRateGap(0, month)).toBeNull();
+    expect(runRateGap(360, null)).toBeNull();
   });
 });
