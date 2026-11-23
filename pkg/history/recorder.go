@@ -68,8 +68,12 @@ type Recorder struct {
 	// reconcileDays is how many of the last days each application re-records once a day, for the
 	// corrections the source makes up to 72 hours late. 0 for none.
 	reconcileDays int
-	mu            sync.Mutex
-	reconciled    map[models.AppRef]string
+	// catchUp is how many days the first reconciliation of an application after a start covers, so
+	// days stored before they were reconciled are corrected once. 0 for the same as reconcileDays.
+	catchUp    int
+	caught     map[models.AppRef]bool
+	mu         sync.Mutex
+	reconciled map[models.AppRef]string
 	// wake asks Run for a run before the next tick.
 	wake chan struct{}
 }
@@ -114,6 +118,14 @@ func (r *Recorder) WithRetention(days int) *Recorder {
 // 72 hours from any time of the day). A day the source answers with no cost is left as stored.
 func (r *Recorder) WithReconcile(days int) *Recorder {
 	r.reconcileDays = days
+	return r
+}
+
+// WithCatchUp makes the first reconciliation of each application after a start cover days days
+// instead of the usual few: days recorded before the corrections arrived (or before reconciling
+// existed) are then replaced once, as far back as the source still has them.
+func (r *Recorder) WithCatchUp(days int) *Recorder {
+	r.catchUp = days
 	return r
 }
 
@@ -314,7 +326,14 @@ func (r *Recorder) reconcile(ctx context.Context, target Target, scope string, e
 	if done {
 		return nil
 	}
-	start := maxDay(last.AddDate(0, 0, -(r.reconcileDays-1)), earliest)
+	window := r.reconcileDays
+	r.mu.Lock()
+	first := !r.caught[target.App]
+	r.mu.Unlock()
+	if first && r.catchUp > window {
+		window = r.catchUp
+	}
+	start := maxDay(last.AddDate(0, 0, -(window-1)), earliest)
 	if start.After(last) {
 		return nil
 	}
@@ -338,6 +357,10 @@ func (r *Recorder) reconcile(ctx context.Context, target Target, scope string, e
 		r.reconciled = map[models.AppRef]string{}
 	}
 	r.reconciled[target.App] = today
+	if r.caught == nil {
+		r.caught = map[models.AppRef]bool{}
+	}
+	r.caught[target.App] = true
 	r.mu.Unlock()
 	return nil
 }
