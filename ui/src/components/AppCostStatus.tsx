@@ -4,12 +4,15 @@ import { useMeasuredClusters } from '../hooks/useMeasuredClusters';
 import { AppContext } from '../utils/api';
 import { asApplication } from '../utils/costInsights';
 import { Destination, otherCluster } from '../utils/destination';
-import { summarizeCostTrend, TrendLevel } from '../utils/costTrend';
+import { summarizeCostTrend, TrendDirection, trendDirection, TrendLevel } from '../utils/costTrend';
 import { formatMoney, formatSignedPercent, sumRounded } from '../utils/format';
 import { managedControllersOf } from '../utils/managedControllers';
 
 // The colours of Argo CD's own status icons, and of its item titles (ARGO_GRAY6_COLOR).
 const LEVEL_COLORS: Record<TrendLevel, string> = { ok: '#18be94', warning: '#f4c030', critical: '#e96d76' };
+// A marker per direction, in Argo CD's Font Awesome: a cost going down is good news, so it is green.
+const DIRECTION_ICONS: Record<TrendDirection, string> = { up: 'fa-arrow-up', down: 'fa-arrow-down', flat: 'fa-arrow-right' };
+const DIRECTION_LABELS: Record<TrendDirection, string> = { up: 'Rising', down: 'Falling', flat: 'Steady' };
 const TITLE_COLOR = '#6d7f8b';
 // useCostData asks for the last 30 days of daily costs.
 const TREND_WINDOW_DAYS = 30;
@@ -84,6 +87,12 @@ const AppCostStatusItem: React.FC<Props> = ({ application }) => {
             title="Daily cost over the last 7 days compared with the 7 days before"
             style={{ color: LEVEL_COLORS[level] }}
           >
+            <i
+              className={`fa ${DIRECTION_ICONS[trendDirection(summary.change)]}`}
+              role="img"
+              aria-label={DIRECTION_LABELS[trendDirection(summary.change)]}
+              style={{ marginRight: '0.3em' }}
+            />
             {formatSignedPercent(summary.change)}
           </span>
         )}

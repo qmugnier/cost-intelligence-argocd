@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DailyCost } from './api';
-import { summarizeCostTrend, trendLevel } from './costTrend';
+import { summarizeCostTrend, trendDirection, trendLevel } from './costTrend';
 
 const NOW = new Date('2026-11-17T12:00:00Z');
 
@@ -36,5 +36,14 @@ describe('trendLevel', () => {
     expect(trendLevel(0.06)).toBe('warning');
     expect(trendLevel(0.2)).toBe('warning');
     expect(trendLevel(0.21)).toBe('critical');
+  });
+});
+
+describe('trendDirection', () => {
+  it('is flat within 5% either way', () => {
+    expect(trendDirection(0.04)).toBe('flat');
+    expect(trendDirection(-0.04)).toBe('flat');
+    expect(trendDirection(0.06)).toBe('up');
+    expect(trendDirection(-0.06)).toBe('down');
   });
 });
