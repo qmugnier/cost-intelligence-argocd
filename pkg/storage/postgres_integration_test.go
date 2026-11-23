@@ -1297,3 +1297,28 @@ VALUES ('new', 'api', 'argocd', '2026-10-02 10:00:00', '2026-10-02 10:00:00', 1,
 	require.NoError(t, db.QueryRowContext(context.Background(), "SELECT count(*) FROM cost_actuals").Scan(&count))
 	assert.Equal(t, 2, count, "down keeps every record")
 }
+
+func TestMigration012_KeepsWhatADayCostBeforeAsItsInitialCost(t *testing.T) {
+	db, m := newDatabaseAt(t, 11)
+	exec(t, db, `INSERT INTO cost_daily (application_namespace, application_name, day, deployment_namespace, scope,
+total_cost, cpu_cost, memory_cost, network_cost, storage_cost) VALUES ('argocd', 'web', '2026-10-01', 'shop', 'application', 5, 2, 2, 1, 0)`)
+
+	require.NoError(t, m.Migrate(12))
+	var initial float64
+	require.NoError(t, db.QueryRowContext(context.Background(), "SELECT initial_total_cost FROM cost_daily").Scan(&initial))
+	assert.InDelta(t, 5, initial, 0, "a day recorded before the migration keeps its value as its initial one")
+}
+
+func TestSaveDailyCosts_NeverReplacesTheInitialCost(t *testing.T) {
+	ctx := context.Background()
+	truncate(t)
+	app := models.AppRef{Namespace: "argocd", Name: "web"}
+	require.NoError(t, testStorage.SaveDailyCosts(ctx, app, "shop", models.ScopeApplication, []models.DailyCost{{Date: "2026-10-02", TotalCost: 3}}))
+	require.NoError(t, testStorage.SaveDailyCosts(ctx, app, "shop", models.ScopeApplication, []models.DailyCost{{Date: "2026-10-02", TotalCost: 4}}))
+
+	var initial, total float64
+	require.NoError(t, testStorage.db.QueryRowContext(ctx,
+		"SELECT initial_total_cost, total_cost FROM cost_daily WHERE day = '2026-10-02'").Scan(&initial, &total))
+	assert.InDelta(t, 3, initial, 0)
+	assert.InDelta(t, 4, total, 0, "the day itself is replaced")
+}

@@ -781,8 +781,9 @@ func (p *PostgresCostStorage) SaveDailyCosts(
 	query := `
 	INSERT INTO cost_daily
 	(application_namespace, application_name, day, deployment_namespace, scope,
-	 total_cost, cpu_cost, memory_cost, network_cost, storage_cost, recorded_at)
-	VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, NOW())
+	 total_cost, cpu_cost, memory_cost, network_cost, storage_cost, recorded_at,
+	 initial_total_cost, initial_cpu_cost, initial_memory_cost, initial_network_cost, initial_storage_cost, initial_recorded_at)
+	VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, NOW(), $6, $7, $8, $9, $10, NOW())
 	ON CONFLICT (application_namespace, application_name, day) DO UPDATE SET
 		deployment_namespace = EXCLUDED.deployment_namespace,
 		scope = EXCLUDED.scope,
@@ -793,6 +794,7 @@ func (p *PostgresCostStorage) SaveDailyCosts(
 		storage_cost = EXCLUDED.storage_cost,
 		recorded_at = EXCLUDED.recorded_at
 	`
+	// The initial_* columns are not in the update: they keep what the day first cost.
 	stmt, err := tx.PrepareContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to prepare daily cost insert: %w", err)

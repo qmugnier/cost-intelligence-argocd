@@ -184,7 +184,7 @@ func runAPI(cfg *config.Config, logger *log.Logger) {
 	if cfg.DailyHistoryDays > 0 {
 		recorder = history.NewRecorder(costStorage, opencostClient, cfg.DailyHistoryDays, logger).WithScope(measured).WithRetention(cfg.RetentionDays())
 		if cfg.CostProvider == config.ProviderKubecost {
-			recorder.WithReconcile(cfg.ReconcileDays)
+			recorder.WithReconcile(cfg.ReconcileDays).WithCatchUp(reconcileCatchUpDays)
 		}
 		if applications != nil {
 			recorder.WithApplications(applications)
@@ -302,6 +302,10 @@ func runBackfill(ctx context.Context, b *backfill.Backfill, recorder *history.Re
 		}
 	})
 }
+
+// reconcileCatchUpDays is how many days the first reconciliation after a start covers: Kubecost's
+// EKS-optimized retention, so every day it still has is fetched again once.
+const reconcileCatchUpDays = 15
 
 // refreshCheck is how often runRefresh looks for records older than the refresh interval.
 const refreshCheck = time.Hour

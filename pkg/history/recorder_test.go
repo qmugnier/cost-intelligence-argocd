@@ -455,3 +455,19 @@ func TestRecordOnce_FetchesTheLastDaysAgainOnceADayToPickUpCorrections(t *testin
 	require.NoError(t, recorder.RecordOnce(context.Background()))
 	assert.Len(t, source.calls, 1, "once per UTC day")
 }
+
+func TestRecordOnce_CatchesUpOnTheFirstReconciliationAfterAStart(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeStore(record(web, "shop", webDeploy))
+	store.progress[web] = models.DailyProgress{Through: "2026-10-02", Scope: models.ScopeApplication}
+	require.NoError(t, store.SaveDailyCosts(context.Background(), web, "shop", models.ScopeApplication,
+		[]models.DailyCost{{Date: "2026-09-20", TotalCost: 7}}))
+	source := &fakeOpenCost{costs: costsFrom("shop", "2026-09-15", "2026-10-03", 2)}
+	recorder := newTestRecorder(store, source, "2026-10-03T12:00:00Z").WithReconcile(3).WithCatchUp(15)
+
+	require.NoError(t, recorder.RecordOnce(context.Background()))
+
+	assert.Equal(t, []call{{"shop", "2026-09-18", "2026-10-02", models.ScopeApplication}}, source.calls)
+	assert.InDelta(t, 2, store.days[web]["2026-09-20"].cost.TotalCost, 0, "a day stored before it was reconciled is replaced")
+}
