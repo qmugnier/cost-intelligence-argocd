@@ -23,6 +23,15 @@ export function trendLevel(change: number): TrendLevel {
   return 'ok';
 }
 
+export type TrendDirection = 'up' | 'down' | 'flat';
+
+// trendDirection is which way the daily cost is heading: a move within WARNING_RISE either way is flat.
+export function trendDirection(change: number): TrendDirection {
+  if (change > WARNING_RISE) return 'up';
+  if (change < -WARNING_RISE) return 'down';
+  return 'flat';
+}
+
 // summarizeCostTrend compares the average daily cost of the last 7 complete days with the 7 before.
 // `days` is the series asked for over the last `window` days ending today. It returns null with fewer
 // than 14 complete days, or when the earlier week cost nothing, so no percentage can be given.
