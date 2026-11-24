@@ -3,9 +3,11 @@ package opencost
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1364,4 +1366,33 @@ func TestAllocationData_ScalesVolumeCostsWithTheirAdjustment(t *testing.T) {
 	assert.InDelta(t, 4.5, got.PVs["cluster=c:name=pv-a"].Cost, 1e-9)
 	assert.InDelta(t, 3.0, got.PVs["cluster=c:name=pv-b"].Cost, 1e-9)
 	assert.InDelta(t, got.PVCost, got.PVs["cluster=c:name=pv-a"].Cost+got.PVs["cluster=c:name=pv-b"].Cost, 1e-9)
+}
+
+func TestOwnedControllers_KubecostReportsNoControllerKind(t *testing.T) {
+	t.Parallel()
+
+	resp := AllocationResponse{Data: []map[string]AllocationData{{
+		"__idle__":                {Properties: AllocationProperties{Controller: "__idle__"}},
+		"argo-rollouts":           {Properties: AllocationProperties{Controller: "argo-rollouts"}, CPUCost: 1},
+		"argo-rollouts-dashboard": {Properties: AllocationProperties{Controller: "argo-rollouts-dashboard"}, CPUCost: 2},
+	}}}
+	resources := models.ManagedResources{{Kind: "Deployment", Name: "argo-rollouts", Namespace: "argo-rollouts"}}
+
+	owned := ownedControllers(resp, "argo-rollouts", resources)
+
+	require.Len(t, owned.Data, 1)
+	assert.Equal(t, []string{"argo-rollouts"}, slices.Collect(maps.Keys(owned.Data[0])), "only the application's controller, not the idle entry or its neighbour")
+}
+
+func TestOwnedControllers_KeepsMatchingByKindWhenTheBackendReportsIt(t *testing.T) {
+	t.Parallel()
+
+	resp := AllocationResponse{Data: []map[string]AllocationData{{
+		"web": {Properties: AllocationProperties{Controller: "web", ControllerKind: "statefulset"}},
+	}}}
+	resources := models.ManagedResources{{Kind: "Deployment", Name: "web", Namespace: "shop"}}
+
+	owned := ownedControllers(resp, "shop", resources)
+
+	assert.Empty(t, owned.Data[0], "a StatefulSet named like the Deployment is not its")
 }
