@@ -1,7 +1,14 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { fireEvent } from '@testing-library/react';
 import { AppCostStatus } from './AppCostStatus';
+
+const openCostView = vi.hoisted(() => vi.fn());
+vi.mock('../utils/openCostView', async importOriginal => ({
+  ...(await importOriginal<typeof import('../utils/openCostView')>()),
+  openCostView,
+}));
 
 const costData = vi.hoisted(() => ({ current: null as unknown, daily: null as unknown }));
 vi.mock('../hooks/useCostData', () => ({ useCostData: () => ({ data: costData.current, dailyCosts: costData.daily }) }));
@@ -55,5 +62,14 @@ describe('AppCostStatus', () => {
     expect(marker.className).toContain(icon);
     expect((marker.parentElement as HTMLElement).style.color).toBe(color);
     costData.daily = null;
+  });
+
+  it('opens the Cost Intelligence view when the amount is clicked', () => {
+    costData.current = { scope: 'application', totalMonthlyCost: 100 };
+    render(<AppCostStatus application={application} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '$100.00' }));
+
+    expect(openCostView).toHaveBeenCalledTimes(1);
   });
 });

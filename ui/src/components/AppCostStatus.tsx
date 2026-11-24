@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useCostData } from '../hooks/useCostData';
 import { useMeasuredClusters } from '../hooks/useMeasuredClusters';
 import { AppContext } from '../utils/api';
@@ -7,6 +7,7 @@ import { Destination, otherCluster } from '../utils/destination';
 import { summarizeCostTrend, TrendDirection, trendDirection, TrendLevel } from '../utils/costTrend';
 import { formatMoney, formatSignedPercent, sumRounded } from '../utils/format';
 import { managedControllersOf } from '../utils/managedControllers';
+import { openCostView } from '../utils/openCostView';
 
 // The colours of Argo CD's own status icons, and of its item titles (ARGO_GRAY6_COLOR).
 const LEVEL_COLORS: Record<TrendLevel, string> = { ok: '#18be94', warning: '#f4c030', critical: '#e96d76' };
@@ -44,6 +45,10 @@ const AppCostStatusItem: React.FC<Props> = ({ application }) => {
   const measuredClusters = useMeasuredClusters(deploysElsewhere);
   const remote = deploysElsewhere && (measuredClusters === null || otherCluster(destination, measuredClusters) !== null);
 
+  // The amount opens the Cost Intelligence view; Argo CD's CSS removes outlines, so focus is drawn here.
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+
   const { data, dailyCosts, month } = useCostData(remote ? undefined : name, appCtx, true, 60000);
   if (remote || !data) return null;
 
@@ -80,7 +85,30 @@ const AppCostStatusItem: React.FC<Props> = ({ application }) => {
       </div>
       <div className="application-status-panel__item-value">
         <i className="fa fa-coins" aria-hidden="true" style={{ color: LEVEL_COLORS[level] }} />
-        &nbsp;<span>{formatMoney(sumRounded([kubernetes, cloud]))}</span>
+        &nbsp;
+        {/* A button, so the keyboard reaches it; it looks like the figure it wraps. */}
+        <button
+          type="button"
+          onClick={() => openCostView()}
+          title="Open Cost Intelligence"
+          style={{
+            background: 'none',
+            border: 0,
+            padding: 0,
+            font: 'inherit',
+            color: 'inherit',
+            cursor: 'pointer',
+            textDecoration: hovered || focused ? 'underline' : 'none',
+            borderRadius: '2px',
+            boxShadow: focused ? `0 0 0 2px ${LEVEL_COLORS[level]}` : 'none',
+          }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+        >
+          {formatMoney(sumRounded([kubernetes, cloud]))}
+        </button>
         {summary && (
           <span
             className="application-status-panel__item-value__revision"

@@ -2,6 +2,7 @@ import React from 'react';
 import {CostIntelligenceTab} from './plugin';
 import { NamespaceDashboard } from './components/NamespaceDashboard';
 import { AppCostStatus } from './components/AppCostStatus';
+import { COST_VIEW_ICON, COST_VIEW_TITLE } from './utils/openCostView';
 
 // Types from Argo CD's ui/src/app/shared/services/extensions-service.ts (identical in 3.4 and 3.5).
 // Argo CD types these callbacks loosely itself — any component, and the raw Application object —
@@ -46,8 +47,8 @@ declare global {
     // so the extension is picked up even if this fires before the component mounts.
     w.extensionsAPI.registerAppViewExtension(
         CostIntelligenceTab,
-        'Cost Intelligence',
-        'fa fa-dollar-sign',
+        COST_VIEW_TITLE,
+        `fa ${COST_VIEW_ICON}`,
         () => true
     );
 
