@@ -10,10 +10,13 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/OctopusDeploy/cost-intelligence-argocd/pkg/models"
@@ -23,6 +26,10 @@ type Client struct {
 	baseURL string
 	client  *http.Client
 	logger  *log.Logger
+
+	// windowDays is the most days one daily query to Kubecost may span, learned from its refusal of a
+	// longer window (see GetDailyTimeSeries); 0 until it has refused one.
+	windowDays atomic.Int32
 
 	// kubecost adapts requests to Kubecost's allocation and assets APIs; see WithKubecost.
 	kubecost bool
@@ -1644,25 +1651,57 @@ func (c *Client) GetDailyTimeSeries(
 	if !c.kubecost {
 		return c.dailyTimeSeries(ctx, namespace, from, to, resources)
 	}
-	// Kubecost without its Enterprise license refuses a window longer than 360h (15 days), so a longer
-	// range is asked for in pieces of at most kubecostWindowDays.
+	// Kubecost without its Enterprise license (the EKS-optimized build) refuses a window longer than
+	// 360h. A range is asked for in pieces of the most days Kubecost accepted so far; the first refusal
+	// names its maximum, which is remembered, so a licensed Kubecost keeps getting the long windows.
 	var days []models.DailyCost
-	for start := from; !start.After(to); start = start.AddDate(0, 0, kubecostWindowDays) {
-		end := start.AddDate(0, 0, kubecostWindowDays-1)
+	for start := from; !start.After(to); {
+		span := int(c.windowDays.Load())
+		if span <= 0 {
+			span = kubecostWindowDays
+		}
+		end := start.AddDate(0, 0, span-1)
 		if end.After(to) {
 			end = to
 		}
 		piece, err := c.dailyTimeSeries(ctx, namespace, start, end, resources)
 		if err != nil {
+			if limit := windowLimitDays(err); limit > 0 && limit < span {
+				c.windowDays.Store(int32(limit))
+				c.logf("Kubecost accepts daily queries of at most %d days; asking in pieces of that size", limit)
+				continue
+			}
 			return nil, err
 		}
 		days = append(days, piece...)
+		start = end.AddDate(0, 0, 1)
 	}
 	return days, nil
 }
 
-// kubecostWindowDays is the most days of one daily query to Kubecost, within its 360h window limit.
-const kubecostWindowDays = 14
+// kubecostWindowDays is the most days of one daily query to Kubecost until it names its limit: as many
+// as the Trends tab's default view.
+const kubecostWindowDays = 30
+
+var windowLimit = regexp.MustCompile(`maximum of (\d+)h`)
+
+// windowLimitDays reads the most days a refused window may span from Kubecost's error ("...is greater
+// than maximum of 360h0m0s"), leaving a day for the current one, which is partly measured. Zero when
+// err is no such refusal.
+func windowLimitDays(err error) int {
+	if err == nil || !strings.Contains(err.Error(), "status 402") {
+		return 0
+	}
+	m := windowLimit.FindStringSubmatch(err.Error())
+	if m == nil {
+		return 0
+	}
+	hours, convErr := strconv.Atoi(m[1])
+	if convErr != nil || hours < 48 {
+		return 0
+	}
+	return hours/24 - 1
+}
 
 func (c *Client) dailyTimeSeries(
 	ctx context.Context, namespace string, from, to time.Time, resources models.ManagedResources,

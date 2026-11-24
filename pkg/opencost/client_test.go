@@ -3,6 +3,7 @@ package opencost
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -1419,5 +1420,15 @@ func TestOwnedDailyPods_FollowTheRulesOfTheCurrentCost(t *testing.T) {
 	}
 	if got := keys(true); !slices.Contains(got, "kc-unmounted-pvcs") || slices.Contains(got, "__idle__") {
 		t.Fatalf("the only application must own the unmounted volumes and never the idle entry, kept %v", got)
+	}
+}
+
+func TestWindowLimitDays_ReadsKubecostsRefusal(t *testing.T) {
+	refusal := stderrors.New("opencost returned status 402: Enterprise feature: requested window of 2026-10-26T00:00:00Z,2026-11-24T10:54:00Z is greater than maximum of 360h0m0s")
+	if got := windowLimitDays(refusal); got != 14 {
+		t.Fatalf("limit = %d days, want 14", got)
+	}
+	if got := windowLimitDays(stderrors.New("opencost returned status 500: boom")); got != 0 {
+		t.Fatalf("limit = %d days for another error, want 0", got)
 	}
 }
