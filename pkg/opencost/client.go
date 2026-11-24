@@ -1660,6 +1660,12 @@ func (c *Client) GetDailyTimeSeries(
 		if span <= 0 {
 			span = kubecostWindowDays
 		}
+		if resources != nil && span > kubecostPodWindowDays {
+			// A window per pod holds every pod of the namespace for each day, with its labels: a
+			// namespace running thousands of job pods a day (CI runners, Airflow tasks) makes one
+			// day large, so few days are held in memory at once.
+			span = kubecostPodWindowDays
+		}
 		end := start.AddDate(0, 0, span-1)
 		if end.After(to) {
 			end = to
@@ -1682,6 +1688,13 @@ func (c *Client) GetDailyTimeSeries(
 // kubecostWindowDays is the most days of one daily query to Kubecost until it names its limit: as many
 // as the Trends tab's default view.
 const kubecostWindowDays = 30
+
+// kubecostPodWindowDays is the most days of one per-pod daily query: the response is decoded whole.
+const kubecostPodWindowDays = 3
+
+// dailySlots bounds the daily queries in flight, whichever of the history recorder and the routes
+// asks: each response is decoded whole, so a few at once is what a memory limit can hold.
+var dailySlots = make(chan struct{}, 2)
 
 var windowLimit = regexp.MustCompile(`maximum of (\d+)h`)
 
@@ -1706,6 +1719,13 @@ func windowLimitDays(err error) int {
 func (c *Client) dailyTimeSeries(
 	ctx context.Context, namespace string, from, to time.Time, resources models.ManagedResources,
 ) ([]models.DailyCost, error) {
+	select {
+	case dailySlots <- struct{}{}:
+		defer func() { <-dailySlots }()
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
 	aggregate := "namespace"
 	if resources != nil {
 		aggregate = "controller"

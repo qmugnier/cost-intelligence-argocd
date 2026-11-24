@@ -37,6 +37,7 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ### Fixed
 
+- With Kubecost, the per-pod daily queries hold less memory: they ask for 3 days at a time instead of 14 or 30, and at most 2 daily queries run at once. A namespace running thousands of job pods a day made a single response large enough, with several decoded together, to exceed a 1Gi limit.
 - With Kubecost, a daily range is asked for in windows of up to 30 days, and when Kubecost refuses one (the EKS-optimized build, without the Enterprise license, accepts at most 360h and answers `402 Enterprise feature`) the service reads the limit from the answer, remembers it and asks in pieces of 14 days. A licensed Kubecost keeps getting the long windows.
 - With Kubecost, the daily history of an application whose pods have no controller (an operator's, such as a CloudNativePG cluster) is no longer empty: the series is queried per pod and each pod is matched to the application's resources by the same rules as its Actual costs, including the pods without a controller and the volumes no pod mounts that belong to the only application in a namespace (GitLab runner or Airflow task pods, say).
 - Kubecost's cost adjustments (`cpuCostAdjustment`, `networkCostAdjustment`, ...) are added to the costs they adjust. Kubecost reconciles with the cloud bill and reports the correction beside each cost, so a pod's $2.99 of network cost the provider never charged was projected as it was.
