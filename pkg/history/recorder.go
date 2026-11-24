@@ -195,7 +195,7 @@ func (r *Recorder) RecordOnce(ctx context.Context) error {
 	earliest := utcDay(now).AddDate(0, 0, -r.keepDays)
 
 	var errs []error
-	remote, clusters, err := r.remoteApplications(ctx)
+	remote, clusters, sole, err := r.remoteApplications(ctx)
 	if err != nil {
 		// History keeps being recorded without the list, as before Applications were listed; only
 		// the deletes wait for a run that can list.
@@ -222,7 +222,7 @@ func (r *Recorder) RecordOnce(ctx context.Context) error {
 		if remote[app] {
 			continue
 		}
-		if err := r.recordApp(opencost.WithCluster(ctx, clusters[app]), &records[i], r.reach(now, earliest), last); err != nil {
+		if err := r.recordApp(opencost.WithSoleApplication(opencost.WithCluster(ctx, clusters[app]), sole[app]), &records[i], r.reach(now, earliest), last); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", app, err))
 		}
 	}
@@ -235,24 +235,28 @@ func (r *Recorder) RecordOnce(ctx context.Context) error {
 // remoteApplications returns the Applications whose cluster the cost backend doesn't measure, or none
 // without a lister, and the cluster of the backend each of the others is measured in. An Application
 // missing from the list, one deleted since its last record, is in neither.
-func (r *Recorder) remoteApplications(ctx context.Context) (remote map[models.AppRef]bool, clusters map[models.AppRef]string, err error) {
+func (r *Recorder) remoteApplications(ctx context.Context) (remote map[models.AppRef]bool, clusters map[models.AppRef]string, sole map[models.AppRef]bool, err error) {
 	remote = map[models.AppRef]bool{}
 	clusters = map[models.AppRef]string{}
+	sole = map[models.AppRef]bool{}
 	if r.applications == nil {
-		return remote, clusters, nil
+		return remote, clusters, sole, nil
 	}
 	apps, err := r.applications.List(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list applications: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to list applications: %w", err)
 	}
 	for _, app := range apps {
 		if id, ok := r.scope.ClusterFor(app.Destination); ok {
 			clusters[app.Ref] = id
+			if only, found := exporter.SoleApplication(apps, r.scope, id, app.Destination.Namespace); found && only == app.Ref {
+				sole[app.Ref] = true
+			}
 		} else {
 			remote[app.Ref] = true
 		}
 	}
-	return remote, clusters, nil
+	return remote, clusters, sole, nil
 }
 
 // forget deletes the cost records and history of an application that deploys to another cluster.

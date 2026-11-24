@@ -469,6 +469,24 @@ func WithCluster(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, clusterKey{}, id)
 }
 
+type soleKey struct{}
+
+// WithSoleApplication tells the queries made with the returned context that the application they
+// measure is the only one deploying to its namespace, so that its daily series counts what no
+// application lists (pods without a controller carrying an unowned pod label, unmounted volumes) as
+// its own, as its current cost does.
+func WithSoleApplication(ctx context.Context, sole bool) context.Context {
+	if !sole {
+		return ctx
+	}
+	return context.WithValue(ctx, soleKey{}, true)
+}
+
+func soleOf(ctx context.Context) bool {
+	sole, _ := ctx.Value(soleKey{}).(bool)
+	return sole
+}
+
 // ClusterOf is the cluster a query made with ctx reads: the one WithCluster named, else the client's
 // own. It is empty for a backend that measures only its own cluster.
 func (c *Client) ClusterOf(ctx context.Context) string {
@@ -1669,17 +1687,18 @@ func (c *Client) GetDailyTimeSeries(
 	c.countShared(&result)
 	c.shareNamespacesInCluster(ctx, &result, namespace, params.Get("window"), true)
 
-	if resources != nil {
-		result = ownedControllers(result, namespace, resources, aggregate == "pod")
+	switch {
+	case resources != nil && aggregate == "pod":
+		result = ownedDailyPods(result, namespace, resources.PodOwners(), soleOf(ctx))
+	case resources != nil:
+		result = ownedControllers(result, namespace, resources)
 	}
 	return parseDailyTimeSeries(result), nil
 }
 
-// ownedControllers keeps the controller (or, byPod, pod) allocations the resources own. A day on which none of them
+// ownedControllers keeps the controller allocations the resources own. A day on which none of them
 // ran is left with no entries, and the series skips it.
-func ownedControllers(
-	resp AllocationResponse, namespace string, resources models.ManagedResources, byPod bool,
-) AllocationResponse {
+func ownedControllers(resp AllocationResponse, namespace string, resources models.ManagedResources) AllocationResponse {
 	owned := AllocationResponse{Code: resp.Code, Data: make([]map[string]AllocationData, 0, len(resp.Data))}
 	for _, allocations := range resp.Data {
 		kept := make(map[string]AllocationData)
@@ -1693,16 +1712,7 @@ func ownedControllers(
 			}
 			// Kubecost reports the controller's name but not its kind.
 			owns := false
-			if byPod {
-				pod := alloc.Properties.Pod
-				if pod == "" {
-					pod = key
-				}
-				owns = resources.OwnsPodLabeled(ns, alloc.Properties.ControllerKind, alloc.Properties.Controller, pod, alloc.Properties.Labels)
-				if !owns && alloc.Properties.ControllerKind == "" && alloc.Properties.Controller != "" {
-					owns = resources.OwnsController(ns, alloc.Properties.Controller, alloc.Properties.Labels)
-				}
-			} else if alloc.Properties.ControllerKind == "" {
+			if alloc.Properties.ControllerKind == "" {
 				owns = resources.OwnsController(ns, alloc.Properties.Controller, alloc.Properties.Labels)
 			} else {
 				owns = resources.OwnsPodLabeled(ns, alloc.Properties.ControllerKind, alloc.Properties.Controller, "", alloc.Properties.Labels)
@@ -1712,6 +1722,31 @@ func ownedControllers(
 			}
 		}
 		owned.Data = append(owned.Data, kept)
+	}
+	return owned
+}
+
+// ownedDailyPods keeps the pod allocations of a daily series the resources own, by the rules of the
+// application's current cost (ownedAllocations), so that the two agree. Kubecost reports a controller
+// without its kind, so a pod is also matched by its controller's name. The namespace's only
+// application (sole) also owns the volumes no pod mounts.
+func ownedDailyPods(resp AllocationResponse, namespace string, resources models.ManagedResources, sole bool) AllocationResponse {
+	owned := ownedAllocations(resp, namespace, resources, sole)
+	for i, allocations := range resp.Data {
+		for key, alloc := range allocations {
+			if _, ok := owned.Data[i][key]; ok || isVirtualAllocation(key) {
+				continue
+			}
+			ns := alloc.Properties.Namespace
+			if ns == "" {
+				ns = namespace
+			}
+			byName := alloc.Properties.ControllerKind == "" && alloc.Properties.Controller != "" &&
+				resources.OwnsController(ns, alloc.Properties.Controller, alloc.Properties.Labels)
+			if byName || sole && isUnmountedEntry(alloc, namespace) {
+				owned.Data[i][key] = alloc
+			}
+		}
 	}
 	return owned
 }
