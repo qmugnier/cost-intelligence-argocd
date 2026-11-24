@@ -1641,6 +1641,32 @@ func dayWindow(from, to, now time.Time) string {
 func (c *Client) GetDailyTimeSeries(
 	ctx context.Context, namespace string, from, to time.Time, resources models.ManagedResources,
 ) ([]models.DailyCost, error) {
+	if !c.kubecost {
+		return c.dailyTimeSeries(ctx, namespace, from, to, resources)
+	}
+	// Kubecost without its Enterprise license refuses a window longer than 360h (15 days), so a longer
+	// range is asked for in pieces of at most kubecostWindowDays.
+	var days []models.DailyCost
+	for start := from; !start.After(to); start = start.AddDate(0, 0, kubecostWindowDays) {
+		end := start.AddDate(0, 0, kubecostWindowDays-1)
+		if end.After(to) {
+			end = to
+		}
+		piece, err := c.dailyTimeSeries(ctx, namespace, start, end, resources)
+		if err != nil {
+			return nil, err
+		}
+		days = append(days, piece...)
+	}
+	return days, nil
+}
+
+// kubecostWindowDays is the most days of one daily query to Kubecost, within its 360h window limit.
+const kubecostWindowDays = 14
+
+func (c *Client) dailyTimeSeries(
+	ctx context.Context, namespace string, from, to time.Time, resources models.ManagedResources,
+) ([]models.DailyCost, error) {
 	aggregate := "namespace"
 	if resources != nil {
 		aggregate = "controller"
