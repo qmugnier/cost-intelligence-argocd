@@ -1684,7 +1684,14 @@ func ownedControllers(resp AllocationResponse, namespace string, resources model
 			if ns == "" {
 				ns = namespace
 			}
-			if resources.OwnsPod(ns, alloc.Properties.ControllerKind, alloc.Properties.Controller, "") {
+			// Kubecost reports the controller's name but not its kind.
+			owns := false
+			if alloc.Properties.ControllerKind == "" {
+				owns = resources.OwnsController(ns, alloc.Properties.Controller, alloc.Properties.Labels)
+			} else {
+				owns = resources.OwnsPodLabeled(ns, alloc.Properties.ControllerKind, alloc.Properties.Controller, "", alloc.Properties.Labels)
+			}
+			if owns {
 				kept[key] = alloc
 			}
 		}

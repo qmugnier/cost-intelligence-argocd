@@ -371,6 +371,42 @@ func ConfigureUnownedPodLabels(spec string) error {
 	})
 }
 
+// OwnsController reports whether one of the resources owns an allocation the cost backend aggregated
+// by controller, when it reports the controller's name but not its kind (Kubecost 3.x). The name
+// identifies the workload within a namespace, so any kind of resource but a Pod matches it; a
+// Deployment's or Rollout's ReplicaSet and a CronJob's Jobs match by the suffix they add. Labels, which
+// the allocation carries, then name an operator's custom resource as for a pod (OwnerOfLabeled).
+func (rs ManagedResources) OwnsController(namespace, controller string, labels map[string]string) bool {
+	if controller != "" {
+		for _, r := range rs {
+			if r.Namespace != "" && r.Namespace != namespace {
+				continue
+			}
+			rk := strings.ToLower(r.Kind)
+			if rk == "pod" {
+				continue
+			}
+			if controller == r.Name {
+				return true
+			}
+			if rest, ok := strings.CutPrefix(controller, r.Name); ok {
+				if (rk == "deployment" || rk == "rollout") && rolloutReplicaSet.MatchString(rest) {
+					return true
+				}
+				if rk == "cronjob" && cronJobRun.MatchString(rest) {
+					return true
+				}
+			}
+			for _, kind := range []string{"deployment", "statefulset", "daemonset"} {
+				if ownsGenerated(r, kind, controller, "") {
+					return true
+				}
+			}
+		}
+	}
+	return rs.OwnsPodLabeled(namespace, "", "", "", labels)
+}
+
 // OwnsPodLabeled is OwnsPod for a pod whose labels the cost backend reports.
 func (rs ManagedResources) OwnsPodLabeled(namespace, controllerKind, controller, pod string, labels map[string]string) bool {
 	_, ok := rs.OwnerOfLabeled(namespace, controllerKind, controller, pod, labels)

@@ -233,3 +233,36 @@ func TestCostActual_ForApplication(t *testing.T) {
 	assert.Nil(t, app.App, "the stored measurement is not sent twice")
 	assert.InDelta(t, 9.55, record.TotalMonthlyCost, 1e-9, "the record itself is unchanged")
 }
+
+func TestManagedResources_OwnsController_WithoutAKind(t *testing.T) {
+	resources := ManagedResources{
+		{Kind: "Deployment", Name: "argo-rollouts", Namespace: "argo-rollouts"},
+		{Kind: "Rollout", Name: "api", Namespace: "shop"},
+		{Kind: "CronJob", Name: "report", Namespace: "shop"},
+		{Kind: "Pod", Name: "debug", Namespace: "shop"},
+		{Kind: "Cluster", Name: "pg", Namespace: "shop"},
+	}
+
+	tests := []struct {
+		name                  string
+		namespace, controller string
+		labels                map[string]string
+		want                  bool
+	}{
+		{"the controller of a deployment", "argo-rollouts", "argo-rollouts", nil, true},
+		{"another controller of the namespace", "argo-rollouts", "argo-rollouts-dashboard", nil, false},
+		{"same name in another namespace", "billing", "argo-rollouts", nil, false},
+		{"replicaset of the rollout", "shop", "api-6f7c9b8d5", nil, true},
+		{"controller named like the rollout", "shop", "api-gateway", nil, false},
+		{"job of the cronjob", "shop", "report-29312345", nil, true},
+		{"a pod resource owns no controller", "shop", "debug", nil, false},
+		{"cluster owning pods", "shop", "pg", nil, true},
+		{"no controller and no labels", "shop", "", nil, false},
+		{"operator pods by label", "shop", "chi-x-0-0", map[string]string{"cnpg_io_cluster": "pg"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, resources.OwnsController(tt.namespace, tt.controller, tt.labels))
+		})
+	}
+}
