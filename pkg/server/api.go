@@ -720,6 +720,7 @@ func (s *CostAPIServer) handleGetDailyCosts(w http.ResponseWriter, r *http.Reque
 	}
 
 	ctx, _ := s.placement(r.Context(), app)
+	ctx = opencost.WithSoleApplication(ctx, s.soleApplication(ctx, app, namespace))
 	target := history.Target{App: app, Namespace: namespace, Resources: resources}
 	dailyCosts, err := history.Daily(ctx, s.costStorage, s.opencostCli, target, from, to)
 	if err != nil {
@@ -756,6 +757,7 @@ func (s *CostAPIServer) handleGetMonth(w http.ResponseWriter, r *http.Request, a
 
 	now := time.Now()
 	ctx, _ := s.placement(r.Context(), app)
+	ctx = opencost.WithSoleApplication(ctx, s.soleApplication(ctx, app, namespace))
 	target := history.Target{App: app, Namespace: namespace, Resources: resources}
 	dailyCosts, err := history.Daily(ctx, s.costStorage, s.opencostCli, target, history.MonthFrom(now), now)
 	if err != nil {
