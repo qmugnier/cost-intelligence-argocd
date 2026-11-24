@@ -1626,6 +1626,11 @@ func (c *Client) GetDailyTimeSeries(
 	aggregate := "namespace"
 	if resources != nil {
 		aggregate = "controller"
+		if c.kubecost {
+			// Kubecost reports a pod without a controller (an operator's, say) under no controller
+			// at all, and the controller of the others without its kind, so pods are matched one by one.
+			aggregate = "pod"
+		}
 	}
 
 	params := url.Values{}
@@ -1665,14 +1670,16 @@ func (c *Client) GetDailyTimeSeries(
 	c.shareNamespacesInCluster(ctx, &result, namespace, params.Get("window"), true)
 
 	if resources != nil {
-		result = ownedControllers(result, namespace, resources)
+		result = ownedControllers(result, namespace, resources, aggregate == "pod")
 	}
 	return parseDailyTimeSeries(result), nil
 }
 
-// ownedControllers keeps the controller allocations the resources own. A day on which none of them
+// ownedControllers keeps the controller (or, byPod, pod) allocations the resources own. A day on which none of them
 // ran is left with no entries, and the series skips it.
-func ownedControllers(resp AllocationResponse, namespace string, resources models.ManagedResources) AllocationResponse {
+func ownedControllers(
+	resp AllocationResponse, namespace string, resources models.ManagedResources, byPod bool,
+) AllocationResponse {
 	owned := AllocationResponse{Code: resp.Code, Data: make([]map[string]AllocationData, 0, len(resp.Data))}
 	for _, allocations := range resp.Data {
 		kept := make(map[string]AllocationData)
@@ -1686,7 +1693,16 @@ func ownedControllers(resp AllocationResponse, namespace string, resources model
 			}
 			// Kubecost reports the controller's name but not its kind.
 			owns := false
-			if alloc.Properties.ControllerKind == "" {
+			if byPod {
+				pod := alloc.Properties.Pod
+				if pod == "" {
+					pod = key
+				}
+				owns = resources.OwnsPodLabeled(ns, alloc.Properties.ControllerKind, alloc.Properties.Controller, pod, alloc.Properties.Labels)
+				if !owns && alloc.Properties.ControllerKind == "" && alloc.Properties.Controller != "" {
+					owns = resources.OwnsController(ns, alloc.Properties.Controller, alloc.Properties.Labels)
+				}
+			} else if alloc.Properties.ControllerKind == "" {
 				owns = resources.OwnsController(ns, alloc.Properties.Controller, alloc.Properties.Labels)
 			} else {
 				owns = resources.OwnsPodLabeled(ns, alloc.Properties.ControllerKind, alloc.Properties.Controller, "", alloc.Properties.Labels)

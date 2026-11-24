@@ -37,6 +37,7 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ### Fixed
 
+- With Kubecost, the daily history of an application whose pods have no controller (an operator's, such as a CloudNativePG cluster) is no longer empty: the series is queried per pod and each pod is matched to the application's resources the way the Actual costs are.
 - Kubecost's cost adjustments (`cpuCostAdjustment`, `networkCostAdjustment`, ...) are added to the costs they adjust. Kubecost reconciles with the cloud bill and reports the correction beside each cost, so a pod's $2.99 of network cost the provider never charged was projected as it was.
 - A pod that has ended is projected from the whole measured window, not from its own run time: a job that ran for 76 minutes was multiplied as if it had run all day.
 - A daily-history entry that covers more than a day (Kubecost keeps one entry per month for old data) is skipped, and no longer stored as the cost of its first day.

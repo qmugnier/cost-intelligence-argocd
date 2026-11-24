@@ -1378,7 +1378,7 @@ func TestOwnedControllers_KubecostReportsNoControllerKind(t *testing.T) {
 	}}}
 	resources := models.ManagedResources{{Kind: "Deployment", Name: "argo-rollouts", Namespace: "argo-rollouts"}}
 
-	owned := ownedControllers(resp, "argo-rollouts", resources)
+	owned := ownedControllers(resp, "argo-rollouts", resources, false)
 
 	require.Len(t, owned.Data, 1)
 	assert.Equal(t, []string{"argo-rollouts"}, slices.Collect(maps.Keys(owned.Data[0])), "only the application's controller, not the idle entry or its neighbour")
@@ -1392,7 +1392,28 @@ func TestOwnedControllers_KeepsMatchingByKindWhenTheBackendReportsIt(t *testing.
 	}}}
 	resources := models.ManagedResources{{Kind: "Deployment", Name: "web", Namespace: "shop"}}
 
-	owned := ownedControllers(resp, "shop", resources)
+	owned := ownedControllers(resp, "shop", resources, false)
 
 	assert.Empty(t, owned.Data[0], "a StatefulSet named like the Deployment is not its")
+}
+
+func TestOwnedControllers_ByPodKeepsPodsOfAnOperatorWithoutController(t *testing.T) {
+	resources := models.ManagedResources{
+		{Kind: "StatefulSet", Namespace: "kc", Name: "keycloak-x-pf-keycloakx"},
+		{Kind: "Cluster", Namespace: "kc", Name: "keycloak-database"},
+	}
+	resp := AllocationResponse{Data: []map[string]AllocationData{{
+		"keycloak-x-pf-keycloakx-0": {Properties: AllocationProperties{Namespace: "kc", Pod: "keycloak-x-pf-keycloakx-0", Controller: "keycloak-x-pf-keycloakx"}, CPUCost: 1},
+		"keycloak-database-1":       {Properties: AllocationProperties{Namespace: "kc", Pod: "keycloak-database-1", Labels: map[string]string{"cnpg.io/cluster": "keycloak-database"}}, CPUCost: 2},
+		"other-0":                   {Properties: AllocationProperties{Namespace: "kc", Pod: "other-0"}, CPUCost: 4},
+		"__idle__":                  {CPUCost: 8},
+	}}}
+
+	owned := ownedControllers(resp, "kc", resources, true)
+
+	got := slices.Sorted(maps.Keys(owned.Data[0]))
+	want := []string{"keycloak-database-1", "keycloak-x-pf-keycloakx-0"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("kept %v, want %v", got, want)
+	}
 }
