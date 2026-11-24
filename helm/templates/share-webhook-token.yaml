@@ -1,0 +1,127 @@
+{{- /*
+features.argoCd.shareWebhookToken: with features.autoPatchArgoCd off, still copy the webhook token into
+Argo CD's notifications Secret, which is the one change Cost Intelligence can't do without: the
+notifications controller sends it, and without it every sync webhook gets a 401. The job writes one key
+of one Secret and touches nothing else in Argo CD (no Deployment, ConfigMap or RBAC policy), so it
+leaves other extensions alone. With autoPatchArgoCd on, the full hook shares the token and this does not run.
+*/}}
+{{- if and (not .Values.features.autoPatchArgoCd) (dig "argoCd" "shareWebhookToken" false .Values.features) }}
+{{- if not .Values.webhook.existingSecret }}
+{{- fail "features.argoCd.shareWebhookToken needs webhook.existingSecret. Argo CD renders the chart without reading the cluster, so a generated token would change on every render and never match the one copied to Argo CD. Create the Secret (key: token) and name it in webhook.existingSecret." }}
+{{- end }}
+{{- $name := printf "%s-share-token" (include "cost-intelligence-argocd.fullname" .) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "cost-intelligence-argocd.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+
+---
+# Namespaced, and limited to the one Secret: it can read and patch argocd-notifications-secret and
+# nothing else. It can't create it, so that Secret must exist (Argo CD's install creates it).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Values.argoCd.namespace }}
+  labels:
+    {{- include "cost-intelligence-argocd.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["argocd-notifications-secret"]
+  verbs: ["get", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Values.argoCd.namespace }}
+  labels:
+    {{- include "cost-intelligence-argocd.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+- kind: ServiceAccount
+  name: {{ $name }}
+  namespace: {{ .Values.namespace.name }}
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "cost-intelligence-argocd.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "cost-intelligence-argocd.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $name }}
+      restartPolicy: Never
+      containers:
+      - name: share-token
+        image: {{ .Values.postInstallHook.image }}
+        env:
+        - name: WEBHOOK_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "cost-intelligence-argocd.webhook.secretName" . }}
+              key: token
+        - name: ARGOCD_NAMESPACE
+          value: {{ .Values.argoCd.namespace | quote }}
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          SECRET=argocd-notifications-secret
+          KEY=cost-intel-webhook-token
+
+          if ! kubectl get secret "$SECRET" -n "$ARGOCD_NAMESPACE" >/dev/null; then
+            echo "$SECRET not found in $ARGOCD_NAMESPACE. Argo CD Notifications is not installed, or argoCd.namespace is wrong."
+            exit 1
+          fi
+
+          # The token is passed base64-encoded and never printed.
+          WANT=$(printf '%s' "$WEBHOOK_TOKEN" | base64 | tr -d '\n')
+          HAVE=$(kubectl get secret "$SECRET" -n "$ARGOCD_NAMESPACE" -o "jsonpath={.data.$KEY}")
+          if [ "$WANT" = "$HAVE" ]; then
+            echo "$SECRET already has $KEY: nothing to do"
+            exit 0
+          fi
+
+          kubectl patch secret "$SECRET" -n "$ARGOCD_NAMESPACE" --type merge \
+            -p "{\"data\":{\"$KEY\":\"$WANT\"}}"
+          echo "Copied the webhook token into $SECRET ($KEY). Argo CD Notifications reads it on its next settings reload; restart argocd-notifications-controller if webhooks still get a 401."
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
