@@ -236,7 +236,9 @@ Sync your Argo CD release. Changing the init container restarts `argocd-server`.
 
 If you set `notifications.secret.create: false`, create the Secret after that sync. If the chart created that Secret earlier, Argo CD tracks it, so when the Application prunes, the sync deletes it with every key in it, while the Application still shows Synced and Healthy. A Secret you create after the sync stays.
 
-Until it exists the webhook gets a 401 and no cost is recorded. [Check that it works](#check-that-it-works) shows when the token is missing.
+Instead of creating that key yourself, set `features.argoCd.shareWebhookToken: true` next to `autoPatchArgoCd: false`. A small job then copies the token from `webhook.existingSecret` into `argocd-notifications-secret` after each sync of the Application, under a Role that can read and patch only that Secret. It leaves the rest of Argo CD alone. The Secret must already exist.
+
+Until the key exists the webhook gets a 401 and no cost is recorded. [Check that it works](#check-that-it-works) shows when the token is missing.
 
 If a Helm 4 upgrade of your Argo CD release fails with `conflict with "kubectl-patch"`, see [Helm 4 upgrade of Argo CD fails with a `kubectl-patch` conflict](operations.md#helm-4-upgrade-of-argo-cd-fails-with-a-kubectl-patch-conflict).
 

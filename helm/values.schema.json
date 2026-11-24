@@ -760,6 +760,15 @@
         "deployUI": {
           "type": "boolean",
           "description": "Deploy the UI plugin. ui.enabled must be true too."
+        },
+        "argoCd": {
+          "type": "object",
+          "properties": {
+            "shareWebhookToken": {
+              "type": "boolean",
+              "description": "With autoPatchArgoCd off, still copy the webhook token into argocd-notifications-secret with a minimal job. Needs webhook.existingSecret."
+            }
+          }
         }
       }
     }

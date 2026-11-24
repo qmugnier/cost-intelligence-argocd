@@ -92,6 +92,7 @@ The chart can't keep the PVC on uninstall, and it has no switch to run without o
 
 | Key | Default | Description |
 |---|---|---|
+| `features.argoCd.shareWebhookToken` | `false` | With `features.autoPatchArgoCd: false`, still copy the webhook token into `argocd-notifications-secret` (key `cost-intel-webhook-token`) with a small job that touches nothing else in Argo CD: no Deployment, ConfigMap or RBAC policy. It runs under a Role limited to that one Secret, which must already exist. Needs `webhook.existingSecret`; the chart fails to render without it. Ignored when `features.autoPatchArgoCd` is `true`, whose hook shares the token itself. |
 | `features.autoPatchArgoCd` | `true` | Run the post-install/post-upgrade hook that registers the extension, the webhook and the token with Argo CD. With `false` you do all of that yourself. |
 | `ui.enabled` and `features.deployUI` | `true` | Deploy the UI plugin. Both must be true. |
 | `ui.autoRegister` | `true` | Have the hook add the init container that loads the bundle into `argocd-server`. Needs `features.autoPatchArgoCd`. |

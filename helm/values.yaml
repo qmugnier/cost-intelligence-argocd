@@ -477,3 +477,8 @@ features:
   autoPatchArgoCd: true
   # Deploy UI plugin
   deployUI: true
+  argoCd:
+    # With autoPatchArgoCd off, still copy the webhook token into argocd-notifications-secret (key
+    # cost-intel-webhook-token) with a small job that touches nothing else in Argo CD. Without that key
+    # every sync webhook gets a 401. Needs webhook.existingSecret. Ignored when autoPatchArgoCd is on.
+    shareWebhookToken: false
