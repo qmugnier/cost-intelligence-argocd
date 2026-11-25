@@ -172,6 +172,40 @@ describe('NamespaceDashboard', () => {
     expect(stat('Idle spend', 1)).toEqual({ value: '$899.19', detail: '45% of the namespace cost' });
   });
 
+  it('shows the cluster idle share of the cluster and of the namespace, beside the costs', () => {
+    withNamespaceData({
+      namespaces: [
+        { namespace: 'argocd', totalCost: 2018.1, idleCost: 899.19, clusterIdleCost: 100, appCount: 2, measuredAt },
+        { namespace: 'prometheus', totalCost: 865.5, idleCost: 416.16, clusterIdleCost: 50, appCount: 1, measuredAt },
+      ],
+    });
+    render(<NamespaceDashboard />);
+
+    expect(stat('Cluster idle').value).toBe('$150.00');
+    expect(stat('Cluster idle', 1)).toEqual({ value: '$100.00', detail: 'Idle node capacity, not in the cost · 5.0% on top' });
+    expect(stat('Monthly cost').detail).toContain('including cluster idle $2,118.10');
+    expect(screen.getAllByText('Cluster idle', { selector: 'dt' })[0].getAttribute('title')).toMatch(/Not in the cost/);
+    expect(screen.getAllByText('Idle spend', { selector: 'dt' })[0].getAttribute('title')).toMatch(/Already in the cost/);
+  });
+
+  it('says a namespace has no cluster idle share yet, rather than leaving the cell out', () => {
+    withNamespaceData({
+      namespaces: [
+        { namespace: 'argocd', totalCost: 2018.1, idleCost: 899.19, appCount: 2, measuredAt },
+        { namespace: 'prometheus', totalCost: 865.5, idleCost: 416.16, clusterIdleCost: 50, appCount: 1, measuredAt },
+      ],
+    });
+    render(<NamespaceDashboard />);
+
+    expect(stat('Cluster idle', 1)).toEqual({ value: '—', detail: 'Not read yet' });
+  });
+
+  it('shows no cluster idle when the service does not share it', () => {
+    render(<NamespaceDashboard />);
+
+    expect(screen.queryByText('Cluster idle')).toBeNull();
+  });
+
   it('leaves out of idle spend the namespaces it was not measured for', () => {
     withNamespaceData({
       namespaces: [
