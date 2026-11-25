@@ -30,6 +30,19 @@ describe('AppCostStatus', () => {
     expect(screen.getByText('Kubernetes $100.00 + cloud $10.00, incl. $25.00 idle')).toBeTruthy();
   });
 
+  it('adds the cluster idle share to the detail, beside the cost and not in it', () => {
+    costData.current = {
+      scope: 'application',
+      totalMonthlyCost: 100,
+      efficiency: { cpuIdleCost: 20, ramIdleCost: 5 },
+      clusterIdleMonthlyCost: 3.5,
+    };
+    render(<AppCostStatus application={application} />);
+
+    expect(screen.getByText('$100.00')).toBeTruthy();
+    expect(screen.getByText('Kubernetes, incl. $25.00 idle, +$3.50 cluster idle')).toBeTruthy();
+  });
+
   it('shows nothing before there is a measurement', () => {
     costData.current = null;
     const { container } = render(<AppCostStatus application={application} />);

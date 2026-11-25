@@ -124,6 +124,22 @@ describe('CostActual', () => {
     });
   });
 
+  it('shows the cluster idle share beside the cost, with what it makes with it', () => {
+    const data = { ...fixture(), clusterIdleMonthlyCost: 12.5 };
+    render(<CostActual data={data} trend={trendWithPrevious(data)} loading={false} error={null} />);
+
+    expect(stat('Cluster idle')).toEqual({ value: '$12.50', detail: 'Idle node capacity, not in the cost · $500.90 with it' });
+    expect(screen.getByText('Cluster idle', { selector: 'dt' }).getAttribute('title')).toMatch(/Not in the cost/);
+    expect(screen.getByText('Idle spend', { selector: 'dt' }).getAttribute('title')).toMatch(/Already in the cost/);
+  });
+
+  it('shows no cluster idle when the service does not share it', () => {
+    const data = fixture();
+    render(<CostActual data={data} trend={trendWithPrevious(data)} loading={false} error={null} />);
+
+    expect(screen.queryByText('Cluster idle')).toBeNull();
+  });
+
   it('summarises cost, change, idle spend and pricing', () => {
     const data = fixture();
     render(<CostActual data={data} trend={trendWithPrevious(data)} loading={false} error={null} />);

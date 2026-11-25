@@ -164,9 +164,23 @@ export const CostActual: React.FC<CostActualProps> = ({
           },
           {
             label: 'Idle spend',
+            title: "Idle spend: the CPU and memory pods request but don't use. Already in the cost.",
             value: idle === null ? '—' : formatMoney(idle),
             detail: idleDetail(idle, data.totalMonthlyCost, shared),
           },
+          ...(data.clusterIdleMonthlyCost !== undefined
+            ? [
+                {
+                  label: 'Cluster idle',
+                  title:
+                    'Cluster idle: node capacity no pod requests, shared across applications in proportion to cost. Not in the cost.',
+                  value: formatMoney(data.clusterIdleMonthlyCost),
+                  detail: `Idle node capacity, not in the cost · ${formatMoney(
+                    sumRounded([kubernetes, data.clusterIdleMonthlyCost])
+                  )} with it`,
+                },
+              ]
+            : []),
           { label: 'Pricing', value: <PricingValue quality={quality} t={t} />, detail: pricingDetail(quality) },
         ]}
       />

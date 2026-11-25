@@ -131,6 +131,9 @@ export interface CostData {
   ownedPods?: Array<{ name: string; controller?: string; controllerKind?: string }>;
   anomaly?: CostAnomaly;
   cloudEstimate?: CloudServiceEstimate;
+  // The application's monthly share of the cluster's idle cost (node capacity no pod requests), beside
+  // totalMonthlyCost and not in it. Absent unless the service shares idle.
+  clusterIdleMonthlyCost?: number;
 }
 
 export interface ResourceCost {
