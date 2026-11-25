@@ -55,6 +55,10 @@ type Client struct {
 	// volumeMu guards volumeCache: the claims of a cluster's volumes, by cluster, read once for a while.
 	volumeMu    sync.Mutex
 	volumeCache map[string]volumeClaims
+
+	// idleMu guards idleCache: each namespace's share of a cluster's idle cost, by cluster.
+	idleMu    sync.Mutex
+	idleCache map[string]namespaceIdle
 }
 
 // ClientOption configures a Client.
@@ -1315,7 +1319,8 @@ func (c *Client) GetOrphanedPods(ctx context.Context, namespace string) ([]model
 
 func (c *Client) GetChargeback(ctx context.Context, labelKey, namespace string) ([]models.ChargebackEntry, error) {
 	params := url.Values{}
-	params.Add("window", windowParam(last24h()))
+	window := windowParam(last24h())
+	params.Add("window", window)
 	params.Add("aggregate", "label:"+labelKey)
 	if namespace != "" {
 		params.Add("filter", fmt.Sprintf("namespace:%q", namespace))
@@ -1370,7 +1375,139 @@ func (c *Client) GetChargeback(ctx context.Context, labelKey, namespace string) 
 	}
 
 	c.countShared(&allocResult)
-	return parseChargebackEntries(allocResult, summaryResult), nil
+	entries := parseChargebackEntries(allocResult, summaryResult)
+	if c.kubecost && c.shareIdle {
+		if err := c.addClusterIdle(ctx, entries, window, labelKey, namespace, summaryResult); err != nil {
+			c.logf("WARN opencost: cluster idle left out of the chargeback: %v", err)
+		}
+	}
+	return entries, nil
+}
+
+// addClusterIdle sets each entry's ClusterIdleCost to what its label value costs with the cluster's
+// idle cost shared beyond what it costs without: the same query asked again with idle shared, over
+// the same window, and projected the same way.
+func (c *Client) addClusterIdle(
+	ctx context.Context, entries []models.ChargebackEntry, window, labelKey, namespace string, summary SummaryAllocationResponse,
+) error {
+	params := url.Values{}
+	params.Add("window", window)
+	params.Add("aggregate", "label:"+labelKey)
+	if namespace != "" {
+		params.Add("filter", fmt.Sprintf("namespace:%q", namespace))
+	}
+	c.prepare(ctx, params, false)
+	c.applySharing(params)
+	params.Set("includeIdle", "true")
+	params.Set("shareIdle", "true")
+	requestURL := fmt.Sprintf("%s/allocation?%s", c.baseURL, params.Encode())
+	c.logf("DEBUG opencost chargeback idle GET %s", requestURL)
+
+	shared, err := c.readAllocations(ctx, requestURL)
+	if err != nil {
+		return err
+	}
+	c.countShared(shared)
+	withIdle := make(map[string]float64)
+	for _, entry := range parseChargebackEntries(*shared, summary) {
+		withIdle[entry.LabelValue] = entry.TotalCost
+	}
+	for i := range entries {
+		if idle := withIdle[entries[i].LabelValue] - entries[i].TotalCost; idle > idleNoise {
+			entries[i].ClusterIdleCost = idle
+		}
+	}
+	return nil
+}
+
+// idleNoise is the least a share of idle is, in dollars: below it, the difference of two projected
+// answers is their rounding.
+const idleNoise = 0.005
+
+// ShareIdle reports whether the client records each application's and namespace's share of the
+// cluster's idle cost; see WithSharedIdle.
+func (c *Client) ShareIdle() bool { return c.kubecost && c.shareIdle }
+
+// namespaceIdle is each namespace's monthly share of a cluster's idle cost, read at readAt.
+type namespaceIdle struct {
+	shares map[string]float64
+	readAt time.Time
+}
+
+// namespaceIdleTTL is how long a cluster's shares are kept: they are read for every load of the
+// Namespaces page and change slowly.
+const namespaceIdleTTL = 10 * time.Minute
+
+// GetClusterIdleShares returns, for each namespace of the cluster ctx names, its monthly share of the
+// cluster's idle cost: the last 24 hours of the cluster's namespaces asked for with idle shared and
+// without, the difference projected onto a month as costs are. A namespace with no share is absent.
+func (c *Client) GetClusterIdleShares(ctx context.Context) (map[string]float64, error) {
+	cluster := c.clusterOf(ctx)
+	c.idleMu.Lock()
+	cached, ok := c.idleCache[cluster]
+	c.idleMu.Unlock()
+	if ok && time.Since(cached.readAt) < namespaceIdleTTL {
+		return cached.shares, nil
+	}
+
+	startTime, endTime := last24h()
+	read := func(share bool) (*AllocationResponse, error) {
+		params := url.Values{}
+		params.Add("window", windowParam(startTime, endTime))
+		params.Add("aggregate", "namespace")
+		c.prepare(ctx, params, false)
+		c.applySharing(params)
+		if share {
+			params.Set("includeIdle", "true")
+			params.Set("shareIdle", "true")
+		}
+		requestURL := fmt.Sprintf("%s/allocation?%s", c.baseURL, params.Encode())
+		c.logf("DEBUG opencost GET %s", requestURL)
+		resp, err := c.readAllocations(ctx, requestURL)
+		if err != nil {
+			return nil, err
+		}
+		c.countShared(resp)
+		resp.windowStart, resp.windowEnd = startTime, endTime
+		return resp, nil
+	}
+	base, err := read(false)
+	if err != nil {
+		return nil, err
+	}
+	shared, err := read(true)
+	if err != nil {
+		return nil, err
+	}
+
+	periodStart, periodEnd := measuredPeriod(*base)
+	factor := monthlyFactor(periodStart, periodEnd)
+	cost := func(resp *AllocationResponse) map[string]float64 {
+		costs := map[string]float64{}
+		for _, allocations := range resp.Data {
+			for key, alloc := range allocations {
+				if !isVirtualAllocation(key) {
+					costs[key] += alloc.componentCost()
+				}
+			}
+		}
+		return costs
+	}
+	baseCost := cost(base)
+	shares := map[string]float64{}
+	for namespace, withIdle := range cost(shared) {
+		if idle := (withIdle - baseCost[namespace]) * factor; idle > idleNoise {
+			shares[namespace] = idle
+		}
+	}
+
+	c.idleMu.Lock()
+	if c.idleCache == nil {
+		c.idleCache = map[string]namespaceIdle{}
+	}
+	c.idleCache[cluster] = namespaceIdle{shares: shares, readAt: time.Now()}
+	c.idleMu.Unlock()
+	return shares, nil
 }
 
 func parseChargebackEntries(alloc AllocationResponse, summary SummaryAllocationResponse) []models.ChargebackEntry {

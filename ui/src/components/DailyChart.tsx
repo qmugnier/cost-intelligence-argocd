@@ -324,7 +324,7 @@ function describeSlot(slot: Slot, partial: boolean): string {
     return `${day}, still being measured: ${formatMoney(slot.day.totalCost)} so far${trend}`;
   }
   const idle = slot.day.idleCost ?? 0;
-  return `${day}: ${formatMoney(slot.day.totalCost)} per day` + (idle > 0 ? `, ${formatMoney(slot.day.totalCost + idle)} including idle` : '');
+  return `${day}: ${formatMoney(slot.day.totalCost)} per day` + (idle > 0 ? `, ${formatMoney(slot.day.totalCost + idle)} including cluster idle` : '');
 }
 
 interface ChartTooltipProps {
@@ -382,7 +382,7 @@ const ChartTooltip: React.FC<ChartTooltipProps> = ({ slot, partial, left, top, t
       </span>
       {day && !partial && (day.idleCost ?? 0) > 0 && (
         <span style={{ fontSize: '11px', color: t.text, fontVariantNumeric: 'tabular-nums' }}>
-          Idle {formatMoney(day.idleCost ?? 0)} · Including idle {formatMoney(day.totalCost + (day.idleCost ?? 0))}
+          Cluster idle {formatMoney(day.idleCost ?? 0)} · Including cluster idle {formatMoney(day.totalCost + (day.idleCost ?? 0))}
         </span>
       )}
     </div>
@@ -403,7 +403,7 @@ const ChartLegend: React.FC<{ trend: boolean; partial: boolean; idle: boolean; t
       style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', marginTop: '8px', fontSize: '12px', color: t.textMuted }}
     >
       <span style={item}>{swatch(false)} Daily cost</span>
-      {idle && <span style={item}>{swatch(false, t.series[1])} Including idle</span>}
+      {idle && <span style={item}>{swatch(false, t.series[1])} Including cluster idle</span>}
       {trend && <span style={item}>{swatch(true)} Trend to month-end</span>}
       {partial && (
         <span style={item}>

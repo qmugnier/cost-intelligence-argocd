@@ -213,6 +213,9 @@ export interface NamespaceSummary {
   // is null when that measurement predates it, until an application in the namespace syncs again.
   totalCost: number;
   idleCost: number | null;
+  // The namespace's monthly share of the cluster's idle cost (node capacity no pod requests), beside
+  // totalCost and not in it. Absent unless the service shares idle.
+  clusterIdleCost?: number;
   appCount: number;
   measuredAt: string;
   // clusters are the clusters the applications deploying to the namespace run on, in the cost backend's
@@ -306,6 +309,9 @@ export interface ChargebackEntry {
   sharedCost?: number;
   externalCost?: number;
   totalCost: number;
+  // The value's share of the cluster's idle cost, beside totalCost and not in it; absent unless the
+  // service shares idle.
+  clusterIdleCost?: number;
   efficiency: number;
   // Set when the value's pods request no CPU or memory, so efficiency has nothing to measure against.
   noRequests?: boolean;

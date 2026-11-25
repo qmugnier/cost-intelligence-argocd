@@ -197,9 +197,12 @@ type NamespaceSummary struct {
 	TotalCost float64 `json:"totalCost"`
 	// IdleCost is the requested-but-unused CPU and memory cost from the same measurement. Nil when
 	// that measurement did not measure it.
-	IdleCost   *float64  `json:"idleCost"`
-	AppCount   int       `json:"appCount"`
-	MeasuredAt time.Time `json:"measuredAt"`
+	IdleCost *float64 `json:"idleCost"`
+	// ClusterIdleCost is the namespace's monthly share of the cluster's idle cost, beside TotalCost and
+	// not in it. Nil unless idle is shared (Kubecost's openCost.shareIdleCosts) and measured.
+	ClusterIdleCost *float64  `json:"clusterIdleCost,omitempty"`
+	AppCount        int       `json:"appCount"`
+	MeasuredAt      time.Time `json:"measuredAt"`
 	// Clusters are the clusters the Applications deploying to the namespace run on, in the cost backend's
 	// names. Set only when the backend measures several.
 	Clusters []string `json:"clusters,omitempty"`
@@ -342,6 +345,9 @@ type ChargebackEntry struct {
 	SharedCost   float64 `json:"sharedCost,omitempty"`
 	ExternalCost float64 `json:"externalCost,omitempty"`
 	TotalCost    float64 `json:"totalCost"`
+	// ClusterIdleCost is the value's share of the cluster's idle cost, beside TotalCost and not in it.
+	// Zero unless idle is shared (Kubecost's openCost.shareIdleCosts).
+	ClusterIdleCost float64 `json:"clusterIdleCost,omitempty"`
 	// Efficiency is how much of their CPU and memory requests the label value's pods use, weighted
 	// by cost; 0 when not measured or when NoRequests.
 	Efficiency float64 `json:"efficiency"`

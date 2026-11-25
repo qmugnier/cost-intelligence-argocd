@@ -1460,3 +1460,19 @@ func TestParseDailyTimeSeries_LeavesOutTheClustersIdleEntry(t *testing.T) {
 		t.Fatalf("days = %+v, want the namespace's 12 without idle", days)
 	}
 }
+
+func TestParseChargebackEntries_ProjectsTheSameWindowTheSameWay(t *testing.T) {
+	// addClusterIdle subtracts two parsed answers; with the same window and the same pods they must
+	// agree to the cent, or idle would appear where there is none.
+	start := time.Date(2026, 11, 24, 0, 0, 0, 0, time.UTC)
+	resp := AllocationResponse{Data: []map[string]AllocationData{{
+		"team-a": {Start: start, End: start.Add(24 * time.Hour), Minutes: 1440, CPUCost: 1, Properties: AllocationProperties{}},
+	}}}
+
+	a := parseChargebackEntries(resp, SummaryAllocationResponse{})
+	b := parseChargebackEntries(resp, SummaryAllocationResponse{})
+
+	if len(a) != 1 || len(b) != 1 || a[0].TotalCost != b[0].TotalCost {
+		t.Fatalf("entries differ: %+v vs %+v", a, b)
+	}
+}

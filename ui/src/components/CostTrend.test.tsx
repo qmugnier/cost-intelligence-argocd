@@ -35,20 +35,20 @@ describe('CostTrendComponent', () => {
     render(<CostTrendComponent loading={false} error={null} dailyCosts={withIdle} />);
 
     expect(statValue('Total')).toBe('$1.50');
-    expect(screen.getByText('Total').parentElement?.textContent).toContain('including idle $1.80');
-    expect(statValue('Idle')).toBe('$0.30');
-    expect(screen.getByText('Including idle')).toBeTruthy();
+    expect(screen.getByText('Total').parentElement?.textContent).toContain('including cluster idle $1.80');
+    expect(statValue('Cluster idle')).toBe('$0.30');
+    expect(screen.getByText('Including cluster idle')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'View as table' }));
-    expect(screen.getByRole('columnheader', { name: 'Idle' })).toBeTruthy();
-    expect(screen.getByRole('columnheader', { name: 'Including idle' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Cluster idle' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Including cluster idle' })).toBeTruthy();
   });
 
   it('shows no idle without any', () => {
     render(<CostTrendComponent loading={false} error={null} dailyCosts={days} />);
 
-    expect(screen.queryByText('Idle')).toBeNull();
-    expect(screen.queryByText('Including idle')).toBeNull();
+    expect(screen.queryByText('Cluster idle')).toBeNull();
+    expect(screen.queryByText('Including cluster idle')).toBeNull();
   });
 
   it('says the series covers the whole namespace when the application shares it', () => {

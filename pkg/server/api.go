@@ -832,9 +832,40 @@ func (s *CostAPIServer) handleListNamespaces(w http.ResponseWriter, r *http.Requ
 	}
 
 	s.nameClusters(ctx, namespaces)
+	s.addClusterIdle(ctx, namespaces)
 
 	w.Header().Set("Content-Type", "application/json")
 	render.JSON(w, r, map[string]any{"namespaces": namespaces})
+}
+
+// addClusterIdle sets, on each namespace, its monthly share of its cluster's idle cost, when idle is
+// shared. A namespace whose cluster is not known (a record from before it was stored, in a backend
+// that measures several clusters) is left without, and so is every namespace when the shares cannot be
+// read: the page then shows the costs alone.
+func (s *CostAPIServer) addClusterIdle(ctx context.Context, namespaces []models.NamespaceSummary) {
+	if s.opencostCli == nil || !s.opencostCli.ShareIdle() {
+		return
+	}
+	multiple := len(s.choices()) >= 2
+	byCluster := map[string]map[string]float64{}
+	for i := range namespaces {
+		id := namespaces[i].Cluster
+		if id == "" && multiple {
+			continue
+		}
+		shares, read := byCluster[id]
+		if !read {
+			var err error
+			if shares, err = s.opencostCli.GetClusterIdleShares(opencost.WithCluster(ctx, id)); err != nil {
+				s.logger.Printf("Error reading the cluster idle shares of cluster %q: %v\n", id, err)
+				shares = nil
+			}
+			byCluster[id] = shares
+		}
+		if share, ok := shares[namespaces[i].Namespace]; ok {
+			namespaces[i].ClusterIdleCost = &share
+		}
+	}
 }
 
 // nameClusters sets, on each namespace, the clusters it runs on, so the page can filter namespaces by

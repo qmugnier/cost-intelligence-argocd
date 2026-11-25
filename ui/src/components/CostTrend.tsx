@@ -122,10 +122,10 @@ export const CostTrendComponent: React.FC<CostTrendProps> = ({ loading, error, d
               value: formatMoney(total),
               detail:
                 `${dayName(data[0].date)} – ${dayName(data[data.length - 1].date)}` +
-                (idleTotal > 0 ? ` · including idle ${formatMoney(sumRounded([total, idleTotal]))}` : ''),
+                (idleTotal > 0 ? ` · including cluster idle ${formatMoney(sumRounded([total, idleTotal]))}` : ''),
             },
             ...(idleTotal > 0
-              ? [{ label: 'Idle', value: formatMoney(idleTotal), detail: 'Share of cluster idle, not in the costs above' }]
+              ? [{ label: 'Cluster idle', value: formatMoney(idleTotal), detail: 'Share of idle node capacity, not in the costs above' }]
               : []),
             ...(showForecast
               ? [
@@ -352,10 +352,10 @@ const DailyCostTable: React.FC<{ days: DailyCost[]; t: Tokens }> = ({ days, t })
             {hasIdle && (
               <>
                 <th scope="col" style={headStyle}>
-                  Idle
+                  Cluster idle
                 </th>
                 <th scope="col" style={headStyle}>
-                  Including idle
+                  Including cluster idle
                 </th>
               </>
             )}
