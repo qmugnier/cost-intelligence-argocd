@@ -60,6 +60,7 @@ const AppCostStatusItem: React.FC<Props> = ({ application }) => {
   const detail = [
     cloud > 0 ? `Kubernetes ${formatMoney(kubernetes)} + cloud ${formatMoney(cloud)}` : 'Kubernetes',
     idle !== null && data.scope === 'application' ? `incl. ${formatMoney(idle)} idle` : null,
+    data.clusterIdleMonthlyCost ? `+${formatMoney(data.clusterIdleMonthlyCost)} cluster idle` : null,
   ]
     .filter(Boolean)
     .join(', ');

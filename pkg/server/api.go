@@ -442,6 +442,7 @@ func (s *CostAPIServer) handleGetActualCost(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	actual := latest.ForApplication()
+	actual.ClusterIdleMonthlyCost = s.clusterIdleShare(ctx, latest, &actual)
 
 	recent, err := s.costStorage.GetRecentActuals(ctx, app, anomalyHistoryLimit)
 	if err != nil {
@@ -466,6 +467,31 @@ func (s *CostAPIServer) handleGetActualCost(w http.ResponseWriter, r *http.Reque
 
 	w.Header().Set("Content-Type", "application/json")
 	render.JSON(w, r, actual)
+}
+
+// clusterIdleShare is the application's monthly share of its cluster's idle cost, when idle is shared:
+// the share of its deployment namespace, in proportion to the application's part of the namespace's
+// cost (the stored record measures the namespace, the application's view only its own pods). Nil when
+// idle is not shared, the cluster is not known in a backend that measures several, or the share cannot
+// be read: the page then shows the costs alone.
+func (s *CostAPIServer) clusterIdleShare(ctx context.Context, namespaceRecord, application *models.CostActual) *float64 {
+	if s.opencostCli == nil || !s.opencostCli.ShareIdle() || namespaceRecord.TotalMonthlyCost <= 0 {
+		return nil
+	}
+	if namespaceRecord.Cluster == "" && len(s.choices()) >= 2 {
+		return nil
+	}
+	shares, err := s.opencostCli.GetClusterIdleShares(opencost.WithCluster(ctx, namespaceRecord.Cluster))
+	if err != nil {
+		s.logger.Printf("Error reading the cluster idle shares of cluster %q: %v\n", namespaceRecord.Cluster, err)
+		return nil
+	}
+	share, ok := shares[namespaceRecord.DeploymentNamespace]
+	if !ok {
+		return nil
+	}
+	own := share * application.TotalMonthlyCost / namespaceRecord.TotalMonthlyCost
+	return &own
 }
 
 // POST /api/cost-analysis/{appName}/cloud-estimate?source=infracost

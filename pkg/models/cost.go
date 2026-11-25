@@ -43,6 +43,11 @@ type CostActual struct {
 	// Scope says what the cost fields describe: ScopeApplication or ScopeNamespace. Set only by
 	// ForApplication.
 	Scope string `json:"scope,omitempty"`
+	// ClusterIdleMonthlyCost is the application's monthly share of the cluster's idle cost, beside
+	// TotalMonthlyCost and not in it: its namespace's share, in proportion to its part of the
+	// namespace's cost. Nil unless idle is shared (Kubecost's openCost.shareIdleCosts) and read. Never
+	// stored: it is read when the record is served.
+	ClusterIdleMonthlyCost *float64 `json:"clusterIdleMonthlyCost,omitempty"`
 }
 
 const (
