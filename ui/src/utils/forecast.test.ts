@@ -36,6 +36,23 @@ describe('forecastMonthEnd', () => {
     expect(forecast.slope).toBeCloseTo(0);
   });
 
+  it('adds the cluster idle recorded so far, and its average for each day left, to the month', () => {
+    // Oct 1 – Oct 17 complete at $10/day with $1 of idle each, Oct 18 still being measured.
+    const days = series('2026-10-01', 18, () => 10).map(d => ({ ...d, idleCost: 1 }));
+
+    const forecast = forecastMonthEnd(days, '2026-10-01', at('2026-10-18T06:00:00Z'));
+
+    // 31 days at $10, plus $1 for each of the 31 days: 17 recorded and 14 left (Oct 18 – Oct 31).
+    expect(forecast?.total).toBeCloseTo(310, 5);
+    expect(forecast?.idleTotal).toBeCloseTo(341, 5);
+  });
+
+  it('has no idle forecast when no day carries idle', () => {
+    const days = series('2026-10-01', 18, () => 10);
+
+    expect(forecastMonthEnd(days, '2026-10-01', at('2026-10-18T06:00:00Z'))?.idleTotal).toBeNull();
+  });
+
   it('leaves today out of the fit, so a partly measured day does not bend the trend down', () => {
     const complete = series('2026-09-19', 29, () => 10);
     const withToday = forecastMonthEnd([...complete, day('2026-10-18', 0.5)], '2026-09-19', at('2026-10-18T01:00:00Z'))!;
