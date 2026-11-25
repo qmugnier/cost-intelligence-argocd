@@ -226,6 +226,7 @@ const NamespacesView: React.FC<NamespacesViewProps> = ({ all, clusterCount, clus
   const clusterTotal = namespaces.reduce((sum, ns) => sum + ns.totalCost, 0);
   const appCount = namespaces.reduce((sum, ns) => sum + ns.appCount, 0);
   const selected = (selectedNs ? findNamespace(namespaces, selectedNs) : undefined) ?? null;
+  const clusterIdleStats = clusterIdleShareStat(namespaces);
 
   return (
     <div ref={layoutRef}>
@@ -238,6 +239,7 @@ const NamespacesView: React.FC<NamespacesViewProps> = ({ all, clusterCount, clus
             detail: `${all ? `${pluralize(clusterCount, 'cluster')} · ` : ''}${pluralize(namespaces.length, 'namespace')} · ${pluralize(appCount, 'app')} · last 24 h × 30 days`,
           },
           clusterIdleStat(namespaces, onShowIdleApps, t),
+          ...(clusterIdleStats ? [clusterIdleStats] : []),
           ...(all
             ? []
             : [
@@ -266,6 +268,7 @@ const NamespacesView: React.FC<NamespacesViewProps> = ({ all, clusterCount, clus
             error={data.appsError}
             argoApps={argo.applications}
             argoError={argo.error}
+            showClusterIdle={sharesIdle(namespaces)}
           />
         )}
       </div>
@@ -273,7 +276,28 @@ const NamespacesView: React.FC<NamespacesViewProps> = ({ all, clusterCount, clus
   );
 };
 
-const NOT_MEASURED_IDLE: Stat = { label: 'Idle spend', value: '—', detail: 'Not measured yet' };
+// The two idles are different money: Idle spend is in the cost, cluster idle is beside it.
+const IDLE_SPEND_TITLE = "Idle spend: the CPU and memory pods request but don't use. Already in the cost.";
+const CLUSTER_IDLE_TITLE =
+  'Cluster idle: node capacity no pod requests, shared across namespaces in proportion to cost. Not in the cost.';
+
+const NOT_MEASURED_IDLE: Stat = { label: 'Idle spend', value: '—', detail: 'Not measured yet', title: IDLE_SPEND_TITLE };
+
+// shareIdle reports whether the service shares the cluster's idle cost: some namespace carries a share.
+const sharesIdle = (namespaces: NamespaceSummary[]) => namespaces.some(ns => ns.clusterIdleCost !== undefined);
+
+// clusterIdleShareStat is the namespaces' shares of the cluster's idle cost added up, beside their cost.
+function clusterIdleShareStat(namespaces: NamespaceSummary[]): Stat | null {
+  if (!sharesIdle(namespaces)) return null;
+  const idle = sumRounded(namespaces.map(ns => ns.clusterIdleCost ?? 0));
+  const cost = sumRounded(namespaces.map(ns => ns.totalCost));
+  return {
+    label: 'Cluster idle',
+    title: CLUSTER_IDLE_TITLE,
+    value: formatMoney(idle),
+    detail: `Idle node capacity, not in the costs · ${formatMoney(sumRounded([cost, idle]))} with it`,
+  };
+}
 const CLUSTER_IDLE_NOT_MEASURED = "Not measured yet. Measured at each namespace's next sync";
 
 // measuredIdle sums the idle cost of the namespaces it was measured for, and their cost alone, so
@@ -302,6 +326,7 @@ function clusterIdleStat(namespaces: NamespaceSummary[], onShowApps: () => void,
   const share = idle && formatPercent(idle.cost > 0 ? idle.idle / idle.cost : 0);
   return {
     label: 'Idle spend',
+    title: IDLE_SPEND_TITLE,
     value: idle ? formatMoney(idle.idle) : NOT_MEASURED_IDLE.value,
     detail: (
       <>
@@ -334,6 +359,7 @@ function namespaceIdleStat(namespace: NamespaceSummary): Stat {
   if (namespace.idleCost === null) return { ...NOT_MEASURED_IDLE, detail: 'Not measured yet. Measured at the next sync' };
   return {
     label: 'Idle spend',
+    title: IDLE_SPEND_TITLE,
     value: formatMoney(namespace.idleCost),
     detail: `${formatPercent(namespace.totalCost > 0 ? namespace.idleCost / namespace.totalCost : 0)} of the namespace cost`,
   };
@@ -374,6 +400,9 @@ interface NamespaceDetailProps {
   error: string | null;
   argoApps: ArgoApplication[];
   argoError: string | null;
+  // showClusterIdle is set when the service shares the cluster's idle cost, so a namespace without a
+  // share says so rather than leaving the cell out.
+  showClusterIdle: boolean;
 }
 
 const NamespaceDetail: React.FC<NamespaceDetailProps> = ({
@@ -384,6 +413,7 @@ const NamespaceDetail: React.FC<NamespaceDetailProps> = ({
   error,
   argoApps,
   argoError,
+  showClusterIdle,
 }) => {
   const t = useTokens();
   // Wide enough, the namespace's figures and its recommendation share a row; both are short.
@@ -412,6 +442,7 @@ const NamespaceDetail: React.FC<NamespaceDetailProps> = ({
         apps={breakdown.apps}
         totalCost={breakdown.totalCost}
         unattributed={namespace.totalCost - breakdown.totalCost}
+        clusterIdle={namespace.clusterIdleCost ?? 0}
       />
     );
   }
@@ -424,9 +455,27 @@ const NamespaceDetail: React.FC<NamespaceDetailProps> = ({
         {
           label: 'Monthly cost',
           value: formatMoney(namespace.totalCost),
-          detail: `${formatPercent(clusterTotal > 0 ? namespace.totalCost / clusterTotal : 0)} of the cluster`,
+          detail:
+            `${formatPercent(clusterTotal > 0 ? namespace.totalCost / clusterTotal : 0)} of the cluster` +
+            (namespace.clusterIdleCost
+              ? ` · including cluster idle ${formatMoney(namespace.totalCost + namespace.clusterIdleCost)}`
+              : ''),
         },
         namespaceIdleStat(namespace),
+        ...(showClusterIdle
+          ? [
+              namespace.clusterIdleCost
+                ? {
+                    label: 'Cluster idle',
+                    title: CLUSTER_IDLE_TITLE,
+                    value: formatMoney(namespace.clusterIdleCost),
+                    detail: `Idle node capacity, not in the cost · ${formatPercent(
+                      namespace.totalCost > 0 ? namespace.clusterIdleCost / namespace.totalCost : 0
+                    )} on top`,
+                  }
+                : { label: 'Cluster idle', title: CLUSTER_IDLE_TITLE, value: '—', detail: 'Not read yet' },
+            ]
+          : []),
         {
           label: 'Efficiency',
           value:

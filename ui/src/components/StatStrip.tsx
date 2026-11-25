@@ -7,6 +7,8 @@ export interface Stat {
   label: string;
   value: React.ReactNode;
   detail?: React.ReactNode;
+  // title explains the figure on hover, where its name alone could be mistaken for another's.
+  title?: string;
 }
 
 interface Props {
@@ -49,6 +51,7 @@ export const StatStrip: React.FC<Props> = ({ stats, flush = false }) => {
           }}
         >
           <dt
+            title={stat.title}
             style={{
               fontSize: '12px',
               fontWeight: 500,

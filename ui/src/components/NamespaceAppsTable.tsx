@@ -13,8 +13,10 @@ import { PodCost } from '../utils/api';
 // spacer. The application name grows to 480px and the spacer takes any width beyond that (see
 // NAME_COLUMN). An optional column is there only when some application has that cost, so the cells
 // beside a total add up to it.
-const columns = (optional: number) => `48px ${NAME_COLUMN} 104px 104px ${'104px '.repeat(optional)}116px 132px 140px ${SPACER_COLUMN}`;
-const minTableWidth = (optional: number) => `${844 + 104 * optional}px`;
+// A cluster idle column follows the total when the namespace has a share: beside it, not in it.
+const columns = (optional: number, idle: boolean) =>
+  `48px ${NAME_COLUMN} 104px 104px ${'104px '.repeat(optional)}116px ${idle ? '116px ' : ''}132px 140px ${SPACER_COLUMN}`;
+const minTableWidth = (optional: number, idle: boolean) => `${844 + 104 * optional + (idle ? 116 : 0)}px`;
 const TITLE_ID = 'cost-intel-namespace-apps-title';
 
 interface OptionalColumn {
@@ -57,14 +59,20 @@ interface Props {
   // unattributed is the part of the namespace's cost that no pod row accounts for, such as volumes
   // no pod mounts. Shown as its own row when it is worth a cent or more.
   unattributed?: number;
+  // clusterIdle is the namespace's share of the cluster's idle cost. Kubecost spreads idle in proportion
+  // to cost, so each application's, and the unattributed row's, is its part of the namespace's cost.
+  clusterIdle?: number;
 }
 
 // NamespaceAppsTable lists a namespace's applications, each expandable to the controllers it manages.
 // Every pod appears under exactly one row.
-export const NamespaceAppsTable: React.FC<Props> = ({ apps, totalCost, unattributed = 0 }) => {
+export const NamespaceAppsTable: React.FC<Props> = ({ apps, totalCost, unattributed = 0, clusterIdle = 0 }) => {
   const t = useTokens();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const shown = OPTIONAL_COLUMNS.filter(column => apps.some(app => column.app(app) > 0));
+  const idle = clusterIdle > 0;
+  const namespaceCost = totalCost + Math.max(unattributed, 0);
+  const idleOf = (cost: number) => (namespaceCost > 0 ? (clusterIdle * cost) / namespaceCost : 0);
 
   const toggle = (key: string) =>
     setExpanded(current => {
@@ -75,7 +83,7 @@ export const NamespaceAppsTable: React.FC<Props> = ({ apps, totalCost, unattribu
 
   const row: React.CSSProperties = {
     display: 'grid',
-    gridTemplateColumns: columns(shown.length),
+    gridTemplateColumns: columns(shown.length, idle),
     alignItems: 'center',
     color: t.text,
     fontSize: '13px',
@@ -95,7 +103,7 @@ export const NamespaceAppsTable: React.FC<Props> = ({ apps, totalCost, unattribu
         detail="Each pod counts once, under the app that manages it · totals include storage and network"
       />
       <div style={{ overflowX: 'auto' }}>
-        <div role="table" aria-labelledby={TITLE_ID} style={{ minWidth: minTableWidth(shown.length) }}>
+        <div role="table" aria-labelledby={TITLE_ID} style={{ minWidth: minTableWidth(shown.length, idle) }}>
           <div role="rowgroup">
             <div
               role="row"
@@ -127,6 +135,15 @@ export const NamespaceAppsTable: React.FC<Props> = ({ apps, totalCost, unattribu
               <span role="columnheader" style={numeric}>
                 Total
               </span>
+              {idle && (
+                <span
+                  role="columnheader"
+                  style={numeric}
+                  title="Share of the cluster's idle node capacity, in proportion to cost. Not in the total."
+                >
+                  Cluster idle
+                </span>
+              )}
               <span role="columnheader" style={numeric}>
                 Share
               </span>
@@ -210,6 +227,11 @@ export const NamespaceAppsTable: React.FC<Props> = ({ apps, totalCost, unattribu
                   <span role="cell" style={{ ...numeric, color: t.textStrong, fontWeight: 500 }}>
                     {money(app, appTotal)}
                   </span>
+                  {idle && (
+                    <span role="cell" style={numeric}>
+                      {money(app, idleOf(app.totalCost))}
+                    </span>
+                  )}
                   <span role="cell" style={cell}>
                     {app.visible && <Share fraction={app.share} t={t} />}
                   </span>
@@ -293,6 +315,7 @@ export const NamespaceAppsTable: React.FC<Props> = ({ apps, totalCost, unattribu
                         <span role="cell" style={numeric}>
                           {formatMoney(controllerTotal)}
                         </span>
+                        {idle && <span role="cell" />}
                         <span role="cell" style={cell}>
                           <Share fraction={totalCost > 0 ? controller.totalCost / totalCost : 0} t={t} />
                         </span>
@@ -323,6 +346,7 @@ export const NamespaceAppsTable: React.FC<Props> = ({ apps, totalCost, unattribu
                             <span role="cell" style={numeric}>
                               {formatMoney(total)}
                             </span>
+                            {idle && <span role="cell" />}
                             <span role="cell" style={cell}>
                               <Share fraction={totalCost > 0 ? pod.totalCost / totalCost : 0} t={t} />
                             </span>
@@ -360,6 +384,11 @@ export const NamespaceAppsTable: React.FC<Props> = ({ apps, totalCost, unattribu
                 <span role="cell" style={{ ...numeric, color: t.textStrong, fontWeight: 500 }}>
                   {formatMoney(unattributed)}
                 </span>
+                {idle && (
+                  <span role="cell" style={numeric}>
+                    {formatMoney(idleOf(unattributed))}
+                  </span>
+                )}
                 <span role="cell" style={cell}>
                   <Share fraction={unattributed / (totalCost + unattributed)} t={t} />
                 </span>

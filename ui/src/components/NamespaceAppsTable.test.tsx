@@ -133,4 +133,18 @@ describe('NamespaceAppsTable', () => {
     rerender(<NamespaceAppsTable apps={[app('team-a', 'web')]} totalCost={2} unattributed={0.001} />);
     expect(queryByText('Not attributed to a pod')).toBeNull();
   });
+
+  it("shows each app's part of the namespace's cluster idle beside its total, only when there is one", () => {
+    // The namespace costs 2 + 3.5 = 5.5; its $11 of idle is spread in proportion: $4 to the app, $7 to the rest.
+    const { getAllByRole, queryByRole, rerender } = render(
+      <NamespaceAppsTable apps={[app('team-a', 'web')]} totalCost={2} unattributed={3.5} clusterIdle={11} />
+    );
+    expect(queryByRole('columnheader', { name: 'Cluster idle' })).not.toBeNull();
+    const cells = getAllByRole('cell').map(cell => cell.textContent);
+    expect(cells).toContain('$4.00');
+    expect(cells).toContain('$7.00');
+
+    rerender(<NamespaceAppsTable apps={[app('team-a', 'web')]} totalCost={2} unattributed={3.5} />);
+    expect(queryByRole('columnheader', { name: 'Cluster idle' })).toBeNull();
+  });
 });
