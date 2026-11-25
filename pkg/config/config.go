@@ -46,6 +46,9 @@ type Config struct {
 	// KubecostShareTenancyCosts spreads Kubecost's tenancy costs (cluster-level costs no namespace
 	// owns) over the allocations, and counts that share in each cost. Off by default.
 	KubecostShareTenancyCosts bool `envconfig:"KUBECOST_SHARE_TENANCY_COSTS"`
+	// KubecostShareIdleCosts spreads the cluster's idle cost over the allocations in proportion to their
+	// cost, so each application carries its share of it. Off by default.
+	KubecostShareIdleCosts bool `envconfig:"KUBECOST_SHARE_IDLE_COSTS"`
 	// KubecostShareNamespaces are namespaces (for example kube-system) whose cost Kubecost spreads over
 	// the other allocations, and counts in each cost. Such a namespace is not measured itself.
 	KubecostShareNamespaces []string `envconfig:"KUBECOST_SHARE_NAMESPACES"`

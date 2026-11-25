@@ -362,6 +362,10 @@
           "type": "boolean",
           "description": "Kubecost only: spread tenancy costs over the applications and count them in each cost (KUBECOST_SHARE_TENANCY_COSTS)."
         },
+        "shareIdleCosts": {
+          "type": "boolean",
+          "description": "Kubecost only: spread the cluster's idle cost over the applications and count it in each cost (KUBECOST_SHARE_IDLE_COSTS)."
+        },
         "shareNamespaces": {
           "type": "array",
           "items": { "type": "string" },

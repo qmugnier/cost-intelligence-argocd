@@ -128,6 +128,10 @@ spec:
         - name: KUBECOST_SHARE_TENANCY_COSTS
           value: "true"
         {{- end }}
+        {{- if .Values.openCost.shareIdleCosts }}
+        - name: KUBECOST_SHARE_IDLE_COSTS
+          value: "true"
+        {{- end }}
         {{- with .Values.openCost.shareNamespaces }}
         - name: KUBECOST_SHARE_NAMESPACES
           value: {{ join "," . | quote }}
