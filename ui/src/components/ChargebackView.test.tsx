@@ -328,3 +328,22 @@ describe('ChargebackView results', () => {
     expect(screen.getByText('Enter a label key to group costs by its values.')).toBeTruthy();
   });
 });
+
+describe('ChargebackView cluster idle', () => {
+  it('shows each value\'s share of cluster idle beside its total, and the total including it', () => {
+    withEntries([
+      { ...entry('platform', 1200, 0.85), clusterIdleCost: 100 },
+      { ...entry('payments', 400, 0.3), clusterIdleCost: 50 },
+    ]);
+    render(<ChargebackView namespaces={namespaces} />);
+
+    expect(screen.getByRole('columnheader', { name: 'Cluster idle' })).toBeTruthy();
+    expect(screen.getByText('Attributed cost').parentElement?.textContent).toContain('including cluster idle $1,750.00');
+  });
+
+  it('has no cluster idle column without any', () => {
+    render(<ChargebackView namespaces={namespaces} />);
+
+    expect(screen.queryByRole('columnheader', { name: 'Cluster idle' })).toBeNull();
+  });
+});

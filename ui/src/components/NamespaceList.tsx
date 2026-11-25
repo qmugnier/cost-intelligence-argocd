@@ -73,6 +73,7 @@ export const NamespaceList: React.FC<Props> = ({ namespaces, selected, onSelect,
                   </span>
                   <span style={{ minWidth: '84px', overflowWrap: 'anywhere', color: t.textMuted, fontSize: '12px', textAlign: 'right' }}>
                     {formatPercent(share)} · {pluralize(ns.appCount, 'app')}{showClusters && ns.clusters?.length ? ` · ${ns.clusters.join(', ')}` : ''}
+                    {ns.clusterIdleCost ? ` · +${formatMoney(ns.clusterIdleCost)} cluster idle` : ''}
                   </span>
                 </span>
               </button>

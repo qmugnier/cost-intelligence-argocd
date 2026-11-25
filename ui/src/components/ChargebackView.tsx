@@ -24,9 +24,12 @@ const DEBOUNCE_MS = 400;
 // Label value, CPU, memory, storage, network, GPU when any value has GPU cost, total, share,
 // efficiency, then a spacer. The value grows to 480px and the spacer takes any width beyond that
 // (see NAME_COLUMN). The minimum width is the value's minimum plus the fixed columns.
-const columns = (gpu: boolean, extra: number) =>
-  `${NAME_COLUMN} 96px 96px 96px 96px ${gpu ? '96px ' : ''}${'96px '.repeat(extra)}112px 124px 152px ${SPACER_COLUMN}`;
-const minTableWidth = (gpu: boolean, extra: number) => `${(gpu ? 1028 : 932) + 96 * extra}px`;
+// A cluster idle column follows the total when some value carries a share of it: it is beside the
+// total, not in it.
+const columns = (gpu: boolean, extra: number, idle: boolean) =>
+  `${NAME_COLUMN} 96px 96px 96px 96px ${gpu ? '96px ' : ''}${'96px '.repeat(extra)}112px ${idle ? '112px ' : ''}124px 152px ${SPACER_COLUMN}`;
+const minTableWidth = (gpu: boolean, extra: number, idle: boolean) =>
+  `${(gpu ? 1028 : 932) + 96 * extra + (idle ? 112 : 0)}px`;
 
 const LABEL_INPUT_ID = 'cost-intel-chargeback-label';
 const LABEL_LIST_ID = 'cost-intel-chargeback-label-keys';
@@ -221,6 +224,7 @@ const Results: React.FC<ResultsProps> = ({ entries, totalCost, loading, error, l
   const largest = entries[0];
   // The attributed cost is the sum of the rows as shown, so the rows add up to it.
   const attributed = sumRounded(entries.map(entry => entry.totalCost));
+  const clusterIdle = sumRounded(entries.map(entry => entry.clusterIdleCost ?? 0));
 
   return (
     <div>
@@ -233,7 +237,9 @@ const Results: React.FC<ResultsProps> = ({ entries, totalCost, loading, error, l
           {
             label: 'Attributed cost',
             value: formatMoney(attributed),
-            detail: `Grouped by ${labelKey}${scope}`,
+            detail:
+              `Grouped by ${labelKey}${scope}` +
+              (clusterIdle > 0 ? ` · including cluster idle ${formatMoney(sumRounded([attributed, clusterIdle]))}` : ''),
           },
           {
             label: 'Label values',
@@ -276,10 +282,11 @@ const ChargebackTable: React.FC<TableProps> = ({ entries, totalCost, labelKey, l
     { label: 'Shared', title: 'Cost shared across the cluster, not the value\'s own usage', of: (e: ChargebackEntry) => e.sharedCost ?? 0 },
     { label: 'External', title: 'External cost: cloud services attributed to the value', of: (e: ChargebackEntry) => e.externalCost ?? 0 },
   ].filter(extra => entries.some(entry => extra.of(entry) > 0));
+  const idle = entries.some(entry => (entry.clusterIdleCost ?? 0) > 0);
 
   const row: React.CSSProperties = {
     display: 'grid',
-    gridTemplateColumns: columns(gpu, extras.length),
+    gridTemplateColumns: columns(gpu, extras.length, idle),
     alignItems: 'center',
     color: t.text,
     fontSize: '13px',
@@ -298,7 +305,7 @@ const ChargebackTable: React.FC<TableProps> = ({ entries, totalCost, labelKey, l
       />
 
       <div style={{ overflowX: 'auto' }}>
-        <div role="table" aria-labelledby={TITLE_ID} style={{ minWidth: minTableWidth(gpu, extras.length) }}>
+        <div role="table" aria-labelledby={TITLE_ID} style={{ minWidth: minTableWidth(gpu, extras.length, idle) }}>
           <div role="rowgroup">
             <div
               role="row"
@@ -340,6 +347,15 @@ const ChargebackTable: React.FC<TableProps> = ({ entries, totalCost, labelKey, l
               <span role="columnheader" style={numeric}>
                 Total
               </span>
+              {idle && (
+                <span
+                  role="columnheader"
+                  style={numeric}
+                  title="Share of the cluster's idle cost (node capacity no pod requests), not in the total"
+                >
+                  Cluster idle
+                </span>
+              )}
               <span role="columnheader" style={numeric}>
                 Share
               </span>
@@ -397,6 +413,11 @@ const ChargebackTable: React.FC<TableProps> = ({ entries, totalCost, labelKey, l
                   <span role="cell" style={{ ...numeric, color: t.textStrong, fontWeight: 500 }}>
                     {formatMoney(entry.totalCost)}
                   </span>
+                  {idle && (
+                    <span role="cell" style={numeric}>
+                      {formatMoney(entry.clusterIdleCost ?? 0)}
+                    </span>
+                  )}
                   <span role="cell" style={cell}>
                     <Share fraction={totalCost > 0 ? entry.totalCost / totalCost : 0} t={t} />
                   </span>
