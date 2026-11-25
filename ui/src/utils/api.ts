@@ -164,6 +164,9 @@ export interface DailyCost {
   memoryCost: number;
   networkCost: number;
   storageCost: number;
+  // The share of the cluster's idle cost the day carries, beside the costs above and not in them;
+  // absent unless the service shares idle.
+  idleCost?: number;
 }
 
 export interface DailyCostData {

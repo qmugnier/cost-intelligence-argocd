@@ -364,7 +364,7 @@
         },
         "shareIdleCosts": {
           "type": "boolean",
-          "description": "Kubecost only: spread the cluster's idle cost over the applications and count it in each cost (KUBECOST_SHARE_IDLE_COSTS)."
+          "description": "Kubecost only: record each application's share of the cluster's idle cost per day, beside its costs (KUBECOST_SHARE_IDLE_COSTS)."
         },
         "shareNamespaces": {
           "type": "array",

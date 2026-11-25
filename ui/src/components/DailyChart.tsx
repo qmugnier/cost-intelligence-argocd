@@ -31,7 +31,7 @@ interface Slot {
 const PAD = { top: 12, right: 16, bottom: 28, left: 52 };
 // The tooltip sizes to its content; these estimates only decide which side of the cursor it goes.
 const TOOLTIP_WIDTH = 260;
-const TOOLTIP_HEIGHT = 66;
+const TOOLTIP_HEIGHT = 82;
 // Used where the container cannot be measured (no layout, as in tests).
 const FALLBACK_WIDTH = 600;
 const DASH = '6 5';
@@ -73,7 +73,10 @@ export const DailyChart: React.FC<Props> = ({ dailyCosts, today, from, to, forec
   const firstData = indexOf(data[0].date);
 
   const costs = data.map(day => day.totalCost);
-  const ticks = niceTicks(Math.max(...costs, ...slots.map(slot => slot.trend ?? 0)));
+  // With idle shared, a second line draws each day's cost including its share of idle.
+  const hasIdle = data.some(day => (day.idleCost ?? 0) > 0);
+  const withIdle = (day: DailyCost) => day.totalCost + (day.idleCost ?? 0);
+  const ticks = niceTicks(Math.max(...(hasIdle ? data.map(withIdle) : costs), ...slots.map(slot => slot.trend ?? 0)));
   const yMax = ticks[ticks.length - 1];
   const decimals = tickDecimals(ticks);
   const plotWidth = Math.max(width - PAD.left - PAD.right, 1);
@@ -85,6 +88,9 @@ export const DailyChart: React.FC<Props> = ({ dailyCosts, today, from, to, forec
   const halfDay = n === 1 ? 0 : plotWidth / (n - 1) / 2;
 
   const line = measured.map((day, k) => `${k === 0 ? 'M' : 'L'}${xOf(indexOf(day.date))},${yOf(day.totalCost)}`).join(' ');
+  const idleLine = hasIdle
+    ? measured.map((day, k) => `${k === 0 ? 'M' : 'L'}${xOf(indexOf(day.date))},${yOf(withIdle(day))}`).join(' ')
+    : '';
   const area = measured.length
     ? `${line} L${xOf(indexOf(measured[measured.length - 1].date))},${baseline} L${xOf(indexOf(measured[0].date))},${baseline} Z`
     : '';
@@ -236,6 +242,9 @@ export const DailyChart: React.FC<Props> = ({ dailyCosts, today, from, to, forec
         {line && (
           <path d={line} fill="none" stroke={t.accent} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
         )}
+        {idleLine && (
+          <path d={idleLine} fill="none" stroke={t.series[1]} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+        )}
         {trendPath && <path d={trendPath} fill="none" stroke={t.accent} strokeWidth={2} strokeDasharray={DASH} />}
         {activeSlot && <line x1={activeX} x2={activeX} y1={PAD.top} y2={baseline} stroke={t.textMuted} strokeWidth={1} />}
         <circle
@@ -295,7 +304,9 @@ export const DailyChart: React.FC<Props> = ({ dailyCosts, today, from, to, forec
           t={t}
         />
       )}
-      {(forecast || latestPartial) && <ChartLegend trend={Boolean(forecast)} partial={latestPartial} t={t} />}
+      {(forecast || latestPartial || hasIdle) && (
+        <ChartLegend trend={Boolean(forecast)} partial={latestPartial} idle={hasIdle} t={t} />
+      )}
       <div role="status" style={visuallyHidden}>
         {activeSlot ? describeSlot(activeSlot, isPartial(activeSlot)) : ''}
       </div>
@@ -312,7 +323,8 @@ function describeSlot(slot: Slot, partial: boolean): string {
     const trend = slot.trend === undefined ? '' : `, trend ${formatMoney(slot.trend)} per day`;
     return `${day}, still being measured: ${formatMoney(slot.day.totalCost)} so far${trend}`;
   }
-  return `${day}: ${formatMoney(slot.day.totalCost)} per day`;
+  const idle = slot.day.idleCost ?? 0;
+  return `${day}: ${formatMoney(slot.day.totalCost)} per day` + (idle > 0 ? `, ${formatMoney(slot.day.totalCost + idle)} including idle` : '');
 }
 
 interface ChartTooltipProps {
@@ -368,15 +380,20 @@ const ChartTooltip: React.FC<ChartTooltipProps> = ({ slot, partial, left, top, t
             ? `Still being measured${slot.trend === undefined ? '' : ` · trend ${formatMoney(slot.trend)} / day`}`
             : `CPU ${formatMoney(cpu)} · Memory ${formatMoney(memory)} · Other ${formatMoney(other)}`}
       </span>
+      {day && !partial && (day.idleCost ?? 0) > 0 && (
+        <span style={{ fontSize: '11px', color: t.text, fontVariantNumeric: 'tabular-nums' }}>
+          Idle {formatMoney(day.idleCost ?? 0)} · Including idle {formatMoney(day.totalCost + (day.idleCost ?? 0))}
+        </span>
+      )}
     </div>
   );
 };
 
 // ChartLegend names the marks beyond the plain daily line; it repeats nothing the status region says.
-const ChartLegend: React.FC<{ trend: boolean; partial: boolean; t: Tokens }> = ({ trend, partial, t }) => {
-  const swatch = (dashed: boolean) => (
+const ChartLegend: React.FC<{ trend: boolean; partial: boolean; idle: boolean; t: Tokens }> = ({ trend, partial, idle, t }) => {
+  const swatch = (dashed: boolean, color = t.accent) => (
     <svg width={22} height={8} aria-hidden="true" focusable="false">
-      <line x1={0} x2={22} y1={4} y2={4} stroke={t.accent} strokeWidth={2} strokeDasharray={dashed ? DASH : undefined} />
+      <line x1={0} x2={22} y1={4} y2={4} stroke={color} strokeWidth={2} strokeDasharray={dashed ? DASH : undefined} />
     </svg>
   );
   const item: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: '6px' };
@@ -386,6 +403,7 @@ const ChartLegend: React.FC<{ trend: boolean; partial: boolean; t: Tokens }> = (
       style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', marginTop: '8px', fontSize: '12px', color: t.textMuted }}
     >
       <span style={item}>{swatch(false)} Daily cost</span>
+      {idle && <span style={item}>{swatch(false, t.series[1])} Including idle</span>}
       {trend && <span style={item}>{swatch(true)} Trend to month-end</span>}
       {partial && (
         <span style={item}>

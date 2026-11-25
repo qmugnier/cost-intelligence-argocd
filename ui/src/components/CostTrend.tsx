@@ -92,6 +92,8 @@ export const CostTrendComponent: React.FC<CostTrendProps> = ({ loading, error, d
   const summary = summarizeDaily(complete.length > 0 ? complete : data);
   // The sum of the days as the table lists them, so the table adds up to it.
   const total = sumRounded(data.map(day => day.totalCost));
+  // Idle is shared across the applications by the service, when it is set up to: beside the costs.
+  const idleTotal = sumRounded(data.map(day => day.idleCost ?? 0));
   // Rounded as the forecast is shown, so what is spent and what is projected add up to it.
   const [spent, projected] = showForecast
     ? roundParts([showForecast.spent, showForecast.projected], showForecast.total, Math.abs(showForecast.total) >= 100 ? 0 : 2)
@@ -118,8 +120,13 @@ export const CostTrendComponent: React.FC<CostTrendProps> = ({ loading, error, d
             {
               label: 'Total',
               value: formatMoney(total),
-              detail: `${dayName(data[0].date)} – ${dayName(data[data.length - 1].date)}`,
+              detail:
+                `${dayName(data[0].date)} – ${dayName(data[data.length - 1].date)}` +
+                (idleTotal > 0 ? ` · including idle ${formatMoney(sumRounded([total, idleTotal]))}` : ''),
             },
+            ...(idleTotal > 0
+              ? [{ label: 'Idle', value: formatMoney(idleTotal), detail: 'Share of cluster idle, not in the costs above' }]
+              : []),
             ...(showForecast
               ? [
                   {
@@ -305,6 +312,7 @@ const COST_COLUMNS: Array<[string, (day: DailyCost) => number]> = [
 
 // DailyCostTable is the accessible alternative to the chart, newest day first.
 const DailyCostTable: React.FC<{ days: DailyCost[]; t: Tokens }> = ({ days, t }) => {
+  const hasIdle = days.some(day => (day.idleCost ?? 0) > 0);
   const headStyle: React.CSSProperties = {
     position: 'sticky',
     top: 0,
@@ -341,6 +349,16 @@ const DailyCostTable: React.FC<{ days: DailyCost[]; t: Tokens }> = ({ days, t })
                 {label}
               </th>
             ))}
+            {hasIdle && (
+              <>
+                <th scope="col" style={headStyle}>
+                  Idle
+                </th>
+                <th scope="col" style={headStyle}>
+                  Including idle
+                </th>
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -359,6 +377,12 @@ const DailyCostTable: React.FC<{ days: DailyCost[]; t: Tokens }> = ({ days, t })
                     {formatMoney(columns[index])}
                   </td>
                 ))}
+                {hasIdle && (
+                  <>
+                    <td style={cellStyle}>{formatMoney(day.idleCost ?? 0)}</td>
+                    <td style={{ ...cellStyle, color: t.textStrong }}>{formatMoney(day.totalCost + (day.idleCost ?? 0))}</td>
+                  </>
+                )}
               </tr>
             );
           })}

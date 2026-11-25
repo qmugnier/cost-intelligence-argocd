@@ -1433,19 +1433,16 @@ func TestWindowLimitDays_ReadsKubecostsRefusal(t *testing.T) {
 	}
 }
 
-func TestApplySharing_SharesIdleOnlyWhenAskedAndOnlyForKubecost(t *testing.T) {
-	ask := func(c *Client) url.Values {
-		params := url.Values{"includeIdle": {"false"}}
-		c.applySharing(params)
-		return params
+func TestWithIdle_IsWhatSharingIdleAddsToADay(t *testing.T) {
+	base := []models.DailyCost{{Date: "2026-11-23", TotalCost: 10}, {Date: "2026-11-24", TotalCost: 5}, {Date: "2026-11-25", TotalCost: 1}}
+	shared := []models.DailyCost{{Date: "2026-11-23", TotalCost: 13.5}, {Date: "2026-11-24", TotalCost: 4}}
+
+	got := withIdle(base, shared)
+
+	if got[0].IdleCost != 3.5 {
+		t.Fatalf("idle = %v, want 3.5", got[0].IdleCost)
 	}
-	if p := ask(&Client{kubecost: true, shareIdle: true}); p.Get("shareIdle") != "true" || p.Get("includeIdle") != "true" {
-		t.Fatalf("idle not shared: %v", p)
-	}
-	if p := ask(&Client{kubecost: true}); p.Get("shareIdle") != "" || p.Get("includeIdle") != "false" {
-		t.Fatalf("idle shared without being asked: %v", p)
-	}
-	if p := ask(&Client{shareIdle: true}); p.Get("shareIdle") != "" {
-		t.Fatalf("idle shared for OpenCost: %v", p)
+	if got[1].IdleCost != 0 || got[2].IdleCost != 0 {
+		t.Fatalf("a day that cost less shared, or is missing, has no idle: %+v", got)
 	}
 }
