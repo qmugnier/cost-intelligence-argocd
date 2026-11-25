@@ -41,7 +41,9 @@ type Client struct {
 	groupLabels []string
 	// shareTenancy and shareNamespaces ask Kubecost to spread cluster-level (tenancy) costs and the
 	// cost of the named namespaces over the other allocations; see WithSharedCosts.
-	shareTenancy    bool
+	shareTenancy bool
+	// shareIdle spreads the cluster's idle cost over the allocations; see WithSharedIdle.
+	shareIdle       bool
 	shareNamespaces []string
 	// externalCosts counts the externalCost Kubecost reports (cloud services attributed to an
 	// allocation) in the costs; see WithExternalCosts.
@@ -97,6 +99,14 @@ func WithSharedCosts(tenancy bool, namespaces []string) ClientOption {
 			}
 		}
 	}
+}
+
+// WithSharedIdle has Kubecost spread the cluster's idle cost (node capacity no pod requests) over the
+// allocations in proportion to their cost, so that each pod, and so each application, carries its
+// share in every cost it reports, the daily series included. Without it idle is left out. Kubecost
+// only.
+func WithSharedIdle(enabled bool) ClientOption {
+	return func(c *Client) { c.shareIdle = enabled }
 }
 
 // WithExternalCosts counts the external cost Kubecost attributes to each allocation (cloud services
@@ -340,6 +350,11 @@ func (a AllocationData) countedShared() float64 {
 func (c *Client) applySharing(params url.Values) {
 	if c.kubecost && c.shareTenancy {
 		params.Set("shareTenancyCosts", "true")
+	}
+	if c.kubecost && c.shareIdle {
+		// Idle has to be computed to be shared; the shared entry no longer comes back on its own.
+		params.Set("includeIdle", "true")
+		params.Set("shareIdle", "true")
 	}
 }
 

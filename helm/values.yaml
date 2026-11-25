@@ -247,6 +247,10 @@ openCost:
   # applications, in proportion to their cost, and count that share in what each costs. Off by default:
   # an application then costs what its own pods, volumes and network cost.
   shareTenancyCosts: true
+  # Kubecost only: spread the cluster's idle cost (node capacity no pod requests) over the applications,
+  # in proportion to their cost, and count that share in what each costs, daily history included. Off by
+  # default: an application then costs what its own pods use or request.
+  shareIdleCosts: false
   # Kubecost only: namespaces whose cost, in the same cluster, is spread over that cluster's applications,
   # in proportion to their cost, for example [kube-system]. A shared namespace is not measured itself.
   # Empty shares none.

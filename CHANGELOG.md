@@ -6,6 +6,7 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ### Added
 
+- With Kubecost, `openCost.shareIdleCosts` (`KUBECOST_SHARE_IDLE_COSTS`) spreads the cluster's idle cost over the applications in proportion to their cost, so each application's costs, its daily history included, carry its share of idle. Off by default.
 - Costs refresh daily without a sync. Once an hour each API replica looks for applications whose latest cost record is older than `REFRESH_INTERVAL` (Helm `costIntelligence.refreshInterval`, default `24h`, `0` turns it off) and measures them again, and measures applications that still have no record, such as new ones Kubecost has not ingested yet. The new record is marked `daily` ("Refreshed ..." on the tab); like an install record it is never the baseline of "Since last sync", which keeps comparing syncs. A namespace with no data keeps its last record.
 - With Kubecost, which corrects a day's cost with the cloud bill up to 72 hours later, the recorder fetches the last `RECONCILE_DAYS` (Helm `costIntelligence.reconcileDays`, default 4) days of daily history again once a day, so the Trends tab shows the reconciled figures. The Actual costs cover the last 24 hours, which are not reconciled yet.
 - The Monthly cost in the application's status panel shows an arrow for the trend (rising, falling or steady against the week before), in the green, amber or red of the percentage beside it.

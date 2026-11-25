@@ -1432,3 +1432,20 @@ func TestWindowLimitDays_ReadsKubecostsRefusal(t *testing.T) {
 		t.Fatalf("limit = %d days for another error, want 0", got)
 	}
 }
+
+func TestApplySharing_SharesIdleOnlyWhenAskedAndOnlyForKubecost(t *testing.T) {
+	ask := func(c *Client) url.Values {
+		params := url.Values{"includeIdle": {"false"}}
+		c.applySharing(params)
+		return params
+	}
+	if p := ask(&Client{kubecost: true, shareIdle: true}); p.Get("shareIdle") != "true" || p.Get("includeIdle") != "true" {
+		t.Fatalf("idle not shared: %v", p)
+	}
+	if p := ask(&Client{kubecost: true}); p.Get("shareIdle") != "" || p.Get("includeIdle") != "false" {
+		t.Fatalf("idle shared without being asked: %v", p)
+	}
+	if p := ask(&Client{shareIdle: true}); p.Get("shareIdle") != "" {
+		t.Fatalf("idle shared for OpenCost: %v", p)
+	}
+}
