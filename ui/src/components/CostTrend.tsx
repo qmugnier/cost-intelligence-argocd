@@ -132,7 +132,11 @@ export const CostTrendComponent: React.FC<CostTrendProps> = ({ loading, error, d
                   {
                     label: 'Month-end forecast',
                     value: formatEstimate(showForecast.total),
-                    detail: `${formatEstimate(spent, showForecast.total)} so far + ${formatEstimate(projected, showForecast.total)} projected`,
+                    detail:
+                      `${formatEstimate(spent, showForecast.total)} so far + ${formatEstimate(projected, showForecast.total)} projected` +
+                      (showForecast.idleTotal !== null
+                        ? ` · including cluster idle ${formatEstimate(showForecast.idleTotal, showForecast.idleTotal)}`
+                        : ''),
                   },
                 ]
               : []),

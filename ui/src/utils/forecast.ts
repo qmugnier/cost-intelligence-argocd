@@ -21,6 +21,11 @@ export interface MonthForecast {
   spent: number;
   projected: number;
   total: number;
+  // idleTotal is what the month will cost with the cluster's idle share on top: total plus the idle
+  // recorded for the month's days so far, plus the average idle of the complete days that have any
+  // for each day left. Null when no day has idle recorded (it is shared only when the service is set
+  // up to, and days from before that carry none), so there is nothing to add.
+  idleTotal: number | null;
   // slope is how much the trend's daily cost changes each day.
   slope: number;
   basedOnDays: number;
@@ -79,6 +84,17 @@ export function forecastMonthEnd(days: DailyCost[], from: string, now: Date = ne
     if (day === lastComplete || day >= todayNumber) trend.push({ date: dateOf(day), cost });
   }
 
+  const idleDays = fitted.filter(day => (day.idleCost ?? 0) > 0);
+  let idleTotal: number | null = null;
+  if (idleDays.length > 0) {
+    const averageIdle = idleDays.reduce((sum, day) => sum + (day.idleCost ?? 0), 0) / idleDays.length;
+    const idleSpent = days
+      .filter(day => day.date >= monthStart && day.date < today)
+      .reduce((sum, day) => sum + (day.idleCost ?? 0), 0);
+    const daysLeft = dayNumber(monthEnd) - todayNumber + 1;
+    idleTotal = spent + projected + idleSpent + averageIdle * daysLeft;
+  }
+
   return {
     today,
     monthStart,
@@ -86,6 +102,7 @@ export function forecastMonthEnd(days: DailyCost[], from: string, now: Date = ne
     spent,
     projected,
     total: spent + projected,
+    idleTotal,
     slope,
     basedOnDays: fitted.length,
     trend,
