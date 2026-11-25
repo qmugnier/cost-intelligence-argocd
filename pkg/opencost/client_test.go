@@ -1446,3 +1446,17 @@ func TestWithIdle_IsWhatSharingIdleAddsToADay(t *testing.T) {
 		t.Fatalf("a day that cost less shared, or is missing, has no idle: %+v", got)
 	}
 }
+
+func TestParseDailyTimeSeries_LeavesOutTheClustersIdleEntry(t *testing.T) {
+	start := time.Date(2026, 11, 23, 0, 0, 0, 0, time.UTC)
+	resp := AllocationResponse{Data: []map[string]AllocationData{{
+		"__idle__":             {Start: start, End: start.Add(24 * time.Hour), CPUCost: 17.6},
+		"team-data-df1-prdata": {Start: start, End: start.Add(24 * time.Hour), CPUCost: 12},
+	}}}
+
+	days := parseDailyTimeSeries(resp)
+
+	if len(days) != 1 || days[0].CPUCost != 12 || days[0].TotalCost != 12 {
+		t.Fatalf("days = %+v, want the namespace's 12 without idle", days)
+	}
+}

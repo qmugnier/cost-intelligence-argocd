@@ -1887,7 +1887,12 @@ func parseDailyTimeSeries(resp AllocationResponse) []models.DailyCost {
 		var date string
 		var first, last time.Time
 		var totalCPU, totalMem, totalNetwork, totalStorage, totalCost float64
-		for _, alloc := range allocations {
+		for key, alloc := range allocations {
+			// Kubecost answers with an __idle__ entry whatever includeIdle says: the cluster's idle cost
+			// is not the namespace's.
+			if isVirtualAllocation(key) {
+				continue
+			}
 			if date == "" && !alloc.Start.IsZero() {
 				date = alloc.Start.UTC().Format("2006-01-02")
 			}
