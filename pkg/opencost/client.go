@@ -101,10 +101,10 @@ func WithSharedCosts(tenancy bool, namespaces []string) ClientOption {
 	}
 }
 
-// WithSharedIdle has Kubecost spread the cluster's idle cost (node capacity no pod requests) over the
-// allocations in proportion to their cost, so that each pod, and so each application, carries its
-// share in every cost it reports, the daily series included. Without it idle is left out. Kubecost
-// only.
+// WithSharedIdle has the daily series carry each application's share of the cluster's idle cost
+// (node capacity no pod requests), which Kubecost spreads over the allocations in proportion to their
+// cost, as DailyCost.IdleCost: beside its other costs, not in them. Each day is asked for twice, with
+// idle shared and without, and the difference is the share. Without it idle is left out. Kubecost only.
 func WithSharedIdle(enabled bool) ClientOption {
 	return func(c *Client) { c.shareIdle = enabled }
 }
@@ -350,11 +350,6 @@ func (a AllocationData) countedShared() float64 {
 func (c *Client) applySharing(params url.Values) {
 	if c.kubecost && c.shareTenancy {
 		params.Set("shareTenancyCosts", "true")
-	}
-	if c.kubecost && c.shareIdle {
-		// Idle has to be computed to be shared; the shared entry no longer comes back on its own.
-		params.Set("includeIdle", "true")
-		params.Set("shareIdle", "true")
 	}
 }
 
@@ -1664,7 +1659,7 @@ func (c *Client) GetDailyTimeSeries(
 	ctx context.Context, namespace string, from, to time.Time, resources models.ManagedResources,
 ) ([]models.DailyCost, error) {
 	if !c.kubecost {
-		return c.dailyTimeSeries(ctx, namespace, from, to, resources)
+		return c.dailyTimeSeries(ctx, namespace, from, to, resources, false)
 	}
 	// Kubecost without its Enterprise license (the EKS-optimized build) refuses a window longer than
 	// 360h. A range is asked for in pieces of the most days Kubecost accepted so far; the first refusal
@@ -1685,7 +1680,13 @@ func (c *Client) GetDailyTimeSeries(
 		if end.After(to) {
 			end = to
 		}
-		piece, err := c.dailyTimeSeries(ctx, namespace, start, end, resources)
+		piece, err := c.dailyTimeSeries(ctx, namespace, start, end, resources, false)
+		if err == nil && c.shareIdle {
+			var shared []models.DailyCost
+			if shared, err = c.dailyTimeSeries(ctx, namespace, start, end, resources, true); err == nil {
+				piece = withIdle(piece, shared)
+			}
+		}
 		if err != nil {
 			if limit := windowLimitDays(err); limit > 0 && limit < span {
 				c.windowDays.Store(int32(limit))
@@ -1731,8 +1732,25 @@ func windowLimitDays(err error) int {
 	return hours/24 - 1
 }
 
+// withIdle sets each day's IdleCost to what the same day cost with idle shared, beyond what it cost
+// without. A day missing from either answer, or one that cost less shared, has none.
+func withIdle(base, shared []models.DailyCost) []models.DailyCost {
+	sharedCost := make(map[string]float64, len(shared))
+	for _, day := range shared {
+		sharedCost[day.Date] = day.TotalCost
+	}
+	for i := range base {
+		if idle := sharedCost[base[i].Date] - base[i].TotalCost; idle > 0 {
+			base[i].IdleCost = idle
+		}
+	}
+	return base
+}
+
+// dailyTimeSeries asks for one window. shareIdle has Kubecost spread the cluster's idle cost over the
+// allocations first, so the costs include each one's share.
 func (c *Client) dailyTimeSeries(
-	ctx context.Context, namespace string, from, to time.Time, resources models.ManagedResources,
+	ctx context.Context, namespace string, from, to time.Time, resources models.ManagedResources, shareIdle bool,
 ) ([]models.DailyCost, error) {
 	select {
 	case dailySlots <- struct{}{}:
@@ -1759,6 +1777,11 @@ func (c *Client) dailyTimeSeries(
 
 	c.prepare(ctx, params, true)
 	c.applySharing(params)
+	if shareIdle {
+		// Idle has to be computed to be shared; it no longer comes back as an entry of its own.
+		params.Set("includeIdle", "true")
+		params.Set("shareIdle", "true")
+	}
 	requestURL := fmt.Sprintf("%s/allocation?%s", c.baseURL, params.Encode())
 	c.logf("DEBUG opencost GET %s", requestURL)
 

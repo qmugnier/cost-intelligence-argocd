@@ -316,6 +316,9 @@ type DailyCost struct {
 	MemoryCost  float64 `json:"memoryCost"`
 	NetworkCost float64 `json:"networkCost"`
 	StorageCost float64 `json:"storageCost"`
+	// IdleCost is the share of the cluster's idle cost the day carries, beside the costs above and
+	// not part of them. Zero unless idle is shared (Kubecost's openCost.shareIdleCosts).
+	IdleCost float64 `json:"idleCost,omitempty"`
 }
 
 // DailyProgress is how far an application's daily cost history has been recorded.

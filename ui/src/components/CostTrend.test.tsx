@@ -30,6 +30,27 @@ describe('CostTrendComponent', () => {
     expect(screen.getByText('Total').parentElement?.textContent).toContain('Sep 13 – Sep 15');
   });
 
+  it('shows idle beside the costs, and the total including it, when the days carry idle', () => {
+    const withIdle = days.map(d => ({ ...d, idleCost: 0.1 }));
+    render(<CostTrendComponent loading={false} error={null} dailyCosts={withIdle} />);
+
+    expect(statValue('Total')).toBe('$1.50');
+    expect(screen.getByText('Total').parentElement?.textContent).toContain('including idle $1.80');
+    expect(statValue('Idle')).toBe('$0.30');
+    expect(screen.getByText('Including idle')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View as table' }));
+    expect(screen.getByRole('columnheader', { name: 'Idle' })).toBeTruthy();
+    expect(screen.getByRole('columnheader', { name: 'Including idle' })).toBeTruthy();
+  });
+
+  it('shows no idle without any', () => {
+    render(<CostTrendComponent loading={false} error={null} dailyCosts={days} />);
+
+    expect(screen.queryByText('Idle')).toBeNull();
+    expect(screen.queryByText('Including idle')).toBeNull();
+  });
+
   it('says the series covers the whole namespace when the application shares it', () => {
     const { rerender } = render(<CostTrendComponent loading={false} error={null} dailyCosts={days} />);
     expect(screen.queryByText(/Whole .* namespace/)).toBeNull();

@@ -781,9 +781,9 @@ func (p *PostgresCostStorage) SaveDailyCosts(
 	query := `
 	INSERT INTO cost_daily
 	(application_namespace, application_name, day, deployment_namespace, scope,
-	 total_cost, cpu_cost, memory_cost, network_cost, storage_cost, recorded_at,
+	 total_cost, cpu_cost, memory_cost, network_cost, storage_cost, idle_cost, recorded_at,
 	 initial_total_cost, initial_cpu_cost, initial_memory_cost, initial_network_cost, initial_storage_cost, initial_recorded_at)
-	VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, NOW(), $6, $7, $8, $9, $10, NOW())
+	VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $6, $7, $8, $9, $10, NOW())
 	ON CONFLICT (application_namespace, application_name, day) DO UPDATE SET
 		deployment_namespace = EXCLUDED.deployment_namespace,
 		scope = EXCLUDED.scope,
@@ -792,6 +792,7 @@ func (p *PostgresCostStorage) SaveDailyCosts(
 		memory_cost = EXCLUDED.memory_cost,
 		network_cost = EXCLUDED.network_cost,
 		storage_cost = EXCLUDED.storage_cost,
+		idle_cost = EXCLUDED.idle_cost,
 		recorded_at = EXCLUDED.recorded_at
 	`
 	// The initial_* columns are not in the update: they keep what the day first cost.
@@ -803,7 +804,7 @@ func (p *PostgresCostStorage) SaveDailyCosts(
 
 	for _, day := range days {
 		if _, err := stmt.ExecContext(ctx, app.Namespace, app.Name, day.Date, namespace, scope,
-			day.TotalCost, day.CPUCost, day.MemoryCost, day.NetworkCost, day.StorageCost); err != nil {
+			day.TotalCost, day.CPUCost, day.MemoryCost, day.NetworkCost, day.StorageCost, day.IdleCost); err != nil {
 			return fmt.Errorf("failed to save daily cost for %s: %w", day.Date, err)
 		}
 	}
@@ -818,7 +819,7 @@ func (p *PostgresCostStorage) GetDailyCosts(
 	ctx context.Context, app models.AppRef, scope, from, to string,
 ) ([]models.DailyCost, error) {
 	query := `
-	SELECT to_char(day, 'YYYY-MM-DD'), total_cost, cpu_cost, memory_cost, network_cost, storage_cost
+	SELECT to_char(day, 'YYYY-MM-DD'), total_cost, cpu_cost, memory_cost, network_cost, storage_cost, idle_cost
 	FROM cost_daily
 	WHERE application_namespace = $1 AND application_name = $2 AND scope = $3
 	  AND day BETWEEN $4::date AND $5::date
@@ -834,7 +835,7 @@ func (p *PostgresCostStorage) GetDailyCosts(
 	result := []models.DailyCost{}
 	for rows.Next() {
 		var day models.DailyCost
-		if err := rows.Scan(&day.Date, &day.TotalCost, &day.CPUCost, &day.MemoryCost, &day.NetworkCost, &day.StorageCost); err != nil {
+		if err := rows.Scan(&day.Date, &day.TotalCost, &day.CPUCost, &day.MemoryCost, &day.NetworkCost, &day.StorageCost, &day.IdleCost); err != nil {
 			return nil, fmt.Errorf("failed to scan daily cost row: %w", err)
 		}
 		result = append(result, day)
