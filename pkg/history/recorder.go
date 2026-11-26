@@ -222,7 +222,8 @@ func (r *Recorder) RecordOnce(ctx context.Context) error {
 		if remote[app] {
 			continue
 		}
-		if err := r.recordApp(opencost.WithSoleApplication(opencost.WithCluster(ctx, clusters[app]), sole[app]), &records[i], r.reach(now, earliest), last); err != nil {
+		appCtx := opencost.WithSoleApplication(opencost.WithCluster(ctx, clusters[app]), sole[app])
+		if err := r.recordApp(appCtx, &records[i], r.reach(now, earliest), last); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", app, err))
 		}
 	}
