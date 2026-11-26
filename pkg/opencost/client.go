@@ -616,6 +616,9 @@ func windowParam(start, end time.Time) string {
 	return start.UTC().Format(time.RFC3339) + "," + end.UTC().Format(time.RFC3339)
 }
 
+// idleAllocation is the entry the cluster's idle cost is listed under.
+const idleAllocation = "__idle__"
+
 // isVirtualAllocation reports whether key names one of OpenCost's virtual entries, such as
 // __idle__ or __unallocated__, rather than a real namespace, pod or label value.
 func isVirtualAllocation(key string) bool {
@@ -2026,8 +2029,8 @@ func parseDailyTimeSeries(resp AllocationResponse) []models.DailyCost {
 		var totalCPU, totalMem, totalNetwork, totalStorage, totalCost float64
 		for key, alloc := range allocations {
 			// Kubecost answers with an __idle__ entry whatever includeIdle says: the cluster's idle cost
-			// is not the namespace's.
-			if isVirtualAllocation(key) {
+			// is not the namespace's. __unallocated__ is real cost, of pods without a controller.
+			if key == idleAllocation {
 				continue
 			}
 			if date == "" && !alloc.Start.IsZero() {
