@@ -997,7 +997,7 @@ func (s *CostAPIServer) handleGetOrphanedPods(w http.ResponseWriter, r *http.Req
 		render.JSON(w, r, map[string]string{"error": "invalid namespace: " + ns})
 		return
 	}
-	s.writeOrphanedPods(w, r, ns, nil, false)
+	s.writeOrphanedPods(w, r, ns, nil, nil, false)
 }
 
 // GET /api/cost-analysis/{appName}/rightsizing

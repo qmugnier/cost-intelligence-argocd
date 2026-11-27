@@ -25,15 +25,9 @@ type podCost struct {
 	labels                 map[string]string
 }
 
-// openCostSource measures through a real OpenCost client against a server with the pods of "shop", so
-// that the exporter runs the ownership rules the API does.
-type openCostSource struct{ client *opencost.Client }
-
-func (s openCostSource) RecentCosts(ctx context.Context, namespace string, window time.Duration) (Costs, error) {
-	return s.client.GetRecentPodAllocations(ctx, namespace, window)
-}
-
-func shopCosts(t *testing.T, pods ...podCost) openCostSource {
+// shopCosts measures through a real OpenCost client against a server with the pods of "shop", so that
+// the exporter runs the ownership rules the API does.
+func shopCosts(t *testing.T, pods ...podCost) CostSource {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		end := time.Now()
@@ -48,7 +42,7 @@ func shopCosts(t *testing.T, pods ...podCost) openCostSource {
 		_ = json.NewEncoder(w).Encode(opencost.AllocationResponse{Code: 200, Data: []map[string]opencost.AllocationData{allocations}})
 	}))
 	t.Cleanup(srv.Close)
-	return openCostSource{opencost.NewClient(srv.URL, 5*time.Second, nil)}
+	return NewOpenCostSource(opencost.NewClient(srv.URL, 5*time.Second, nil))
 }
 
 // cpuByApplication is what the exporter exports for CPU, by Application name.
