@@ -1379,7 +1379,7 @@ func TestOwnedControllers_KubecostReportsNoControllerKind(t *testing.T) {
 	}}}
 	resources := models.ManagedResources{{Kind: "Deployment", Name: "argo-rollouts", Namespace: "argo-rollouts"}}
 
-	owned := ownedControllers(resp, "argo-rollouts", resources)
+	owned := ownedControllers(resp, "argo-rollouts", resources, nil)
 
 	require.Len(t, owned.Data, 1)
 	assert.Equal(t, []string{"argo-rollouts"}, slices.Collect(maps.Keys(owned.Data[0])), "only the application's controller, not the idle entry or its neighbour")
@@ -1393,7 +1393,7 @@ func TestOwnedControllers_KeepsMatchingByKindWhenTheBackendReportsIt(t *testing.
 	}}}
 	resources := models.ManagedResources{{Kind: "Deployment", Name: "web", Namespace: "shop"}}
 
-	owned := ownedControllers(resp, "shop", resources)
+	owned := ownedControllers(resp, "shop", resources, nil)
 
 	assert.Empty(t, owned.Data[0], "a StatefulSet named like the Deployment is not its")
 }
@@ -1413,13 +1413,45 @@ func TestOwnedDailyPods_FollowTheRulesOfTheCurrentCost(t *testing.T) {
 	resp := AllocationResponse{Data: []map[string]AllocationData{day}}
 
 	keys := func(sole bool) []string {
-		return slices.Sorted(maps.Keys(ownedDailyPods(resp, "kc", resources.PodOwners(), sole).Data[0]))
+		return slices.Sorted(maps.Keys(ownedDailyPods(resp, "kc", resources.PodOwners(), nil, sole).Data[0]))
 	}
 	if got, want := keys(false), []string{"keycloak-database-1", "keycloak-x-pf-keycloakx-0"}; !slices.Equal(got, want) {
 		t.Fatalf("with several applications kept %v, want %v", got, want)
 	}
 	if got := keys(true); !slices.Contains(got, "kc-unmounted-pvcs") || slices.Contains(got, "__idle__") {
 		t.Fatalf("the only application must own the unmounted volumes and never the idle entry, kept %v", got)
+	}
+}
+
+func TestOwnedDailyPods_NeverTakeAPodAPeerOwns(t *testing.T) {
+	routes := models.ManagedResources{
+		{Kind: "HTTPRoute", Namespace: "shop", Name: "web"},
+		{Kind: "ScaledObject", Namespace: "shop", Name: "gen"},
+	}
+	web := models.ManagedResources{
+		{Kind: "Deployment", Namespace: "shop", Name: "web"},
+		{Kind: "Gateway", Namespace: "shop", Name: "gen"},
+	}
+	pod := func(name, controller, app string) AllocationData {
+		return AllocationData{Properties: AllocationProperties{Namespace: "shop", Pod: name, Controller: controller, Labels: map[string]string{"app": app}}, CPUCost: 1}
+	}
+	day := map[string]AllocationData{
+		"web-1": pod("web-1", "web", "web"),
+		"gen-0": pod("gen-0", "chi-gen-0", "gen"),
+	}
+	resp := AllocationResponse{Data: []map[string]AllocationData{day}}
+	keys := func(own, peers models.ManagedResources) []string {
+		return slices.Sorted(maps.Keys(ownedDailyPods(resp, "shop", own, peers, false).Data[0]))
+	}
+
+	if got, want := keys(routes, nil), []string{"gen-0", "web-1"}; !slices.Equal(got, want) {
+		t.Fatalf("alone, the labels take %v, want %v", got, want)
+	}
+	if got := keys(routes, web); len(got) != 0 {
+		t.Fatalf("with the other application, the route kept %v: the Deployment's pod is its, and the pod both match by label is no one's", got)
+	}
+	if got, want := keys(web, routes), []string{"web-1"}; !slices.Equal(got, want) {
+		t.Fatalf("the Deployment's application kept %v, want %v", got, want)
 	}
 }
 
