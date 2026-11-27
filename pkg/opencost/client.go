@@ -492,6 +492,8 @@ func WithCluster(ctx context.Context, id string) context.Context {
 
 type soleKey struct{}
 
+type peersKey struct{}
+
 // WithSoleApplication tells the queries made with the returned context that the application they
 // measure is the only one deploying to its namespace, so that its daily series counts what no
 // application lists (pods without a controller carrying an unowned pod label, unmounted volumes) as
@@ -501,6 +503,21 @@ func WithSoleApplication(ctx context.Context, sole bool) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, soleKey{}, true)
+}
+
+// WithPeers tells the queries made with the returned context the resources of the other applications
+// deploying to the namespace of the application they measure, which an owner label must not take pods
+// from (models.ManagedResources.OwnsPodAmong).
+func WithPeers(ctx context.Context, peers models.ManagedResources) context.Context {
+	if len(peers) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, peersKey{}, peers)
+}
+
+func peersOf(ctx context.Context) models.ManagedResources {
+	peers, _ := ctx.Value(peersKey{}).(models.ManagedResources)
+	return peers
 }
 
 func soleOf(ctx context.Context) bool {
@@ -781,7 +798,14 @@ type PodAllocations struct {
 	// mounts is then its, listed in its resources or not. With several, only the claims an application
 	// lists are its; the rest stay in the namespace's cost.
 	soleApplication bool
+	// peers are the pod-owning resources of the other applications deploying to the namespace, which
+	// keep a pod from being claimed by an owner label as well (models.ManagedResources.OwnsPodAmong).
+	peers models.ManagedResources
 }
+
+// Peers sets the resources of the other applications deploying to the namespace. It is set before
+// each application is measured, as it differs from one application to the next.
+func (p *PodAllocations) Peers(peers models.ManagedResources) { p.peers = peers }
 
 // SoleApplication tells the measurement whether one application is the only one deploying to the
 // namespace, so that it owns the volumes no pod mounts. Call it before measuring an application.
@@ -1122,7 +1146,7 @@ func (p *PodAllocations) HourlyCostOf(resources models.ManagedResources) HourlyC
 // that deploys it. A claim is matched by its name and, when the provider reports it, its namespace, and
 // only when no other claim in the cluster has that name: a name that repeats could be any of them.
 func (p *PodAllocations) owned(resources models.ManagedResources) AllocationResponse {
-	owned := ownedAllocations(p.resp, p.namespace, resources.PodOwners(), p.soleApplication)
+	owned := ownedAllocations(p.resp, p.namespace, resources.PodOwners(), p.peers, p.soleApplication)
 	claims := resources.Claims(p.namespace)
 	var cost float64
 	if !p.soleApplication {
@@ -1167,10 +1191,11 @@ func (p *PodAllocations) owned(resources models.ManagedResources) AllocationResp
 	return owned
 }
 
-// ownedAllocations keeps the pod allocations the resources own, dropping OpenCost's virtual entries. The
-// namespace's only application (sole) also owns its pods without a controller that carry an unowned pod
-// label: with several applications each would claim them.
-func ownedAllocations(resp AllocationResponse, namespace string, resources models.ManagedResources, sole bool) AllocationResponse {
+// ownedAllocations keeps the pod allocations the resources own, by their controllers and by the owner
+// labels of their pods (unless a peer, another application of the namespace, owns them too), dropping
+// OpenCost's virtual entries. The namespace's only application (sole) also owns its pods without a
+// controller that carry an unowned pod label: with several applications each would claim them.
+func ownedAllocations(resp AllocationResponse, namespace string, resources, peers models.ManagedResources, sole bool) AllocationResponse {
 	owned := AllocationResponse{Code: resp.Code, Data: make([]map[string]AllocationData, 0, len(resp.Data)), windowStart: resp.windowStart, windowEnd: resp.windowEnd}
 	for _, allocations := range resp.Data {
 		kept := make(map[string]AllocationData)
@@ -1186,7 +1211,7 @@ func ownedAllocations(resp AllocationResponse, namespace string, resources model
 			if ns == "" {
 				ns = namespace
 			}
-			if resources.OwnsPodLabeled(ns, alloc.Properties.ControllerKind, alloc.Properties.Controller, pod, alloc.Properties.Labels) ||
+			if resources.OwnsPodAmong(ns, alloc.Properties.ControllerKind, alloc.Properties.Controller, pod, alloc.Properties.Labels, peers) ||
 				sole && resources.OwnsUnownedPod(ns, alloc.Properties.ControllerKind, alloc.Properties.Controller, alloc.Properties.Labels) {
 				kept[key] = alloc
 			}
@@ -1952,16 +1977,16 @@ func (c *Client) dailyTimeSeries(
 
 	switch {
 	case resources != nil && aggregate == "pod":
-		result = ownedDailyPods(result, namespace, resources.PodOwners(), soleOf(ctx))
+		result = ownedDailyPods(result, namespace, resources.PodOwners(), peersOf(ctx), soleOf(ctx))
 	case resources != nil:
-		result = ownedControllers(result, namespace, resources)
+		result = ownedControllers(result, namespace, resources, peersOf(ctx))
 	}
 	return parseDailyTimeSeries(result), nil
 }
 
 // ownedControllers keeps the controller allocations the resources own. A day on which none of them
 // ran is left with no entries, and the series skips it.
-func ownedControllers(resp AllocationResponse, namespace string, resources models.ManagedResources) AllocationResponse {
+func ownedControllers(resp AllocationResponse, namespace string, resources, peers models.ManagedResources) AllocationResponse {
 	owned := AllocationResponse{Code: resp.Code, Data: make([]map[string]AllocationData, 0, len(resp.Data))}
 	for _, allocations := range resp.Data {
 		kept := make(map[string]AllocationData)
@@ -1976,9 +2001,9 @@ func ownedControllers(resp AllocationResponse, namespace string, resources model
 			// Kubecost reports the controller's name but not its kind.
 			owns := false
 			if alloc.Properties.ControllerKind == "" {
-				owns = resources.OwnsController(ns, alloc.Properties.Controller, alloc.Properties.Labels)
+				owns = resources.OwnsControllerAmong(ns, alloc.Properties.Controller, alloc.Properties.Labels, peers)
 			} else {
-				owns = resources.OwnsPodLabeled(ns, alloc.Properties.ControllerKind, alloc.Properties.Controller, "", alloc.Properties.Labels)
+				owns = resources.OwnsPodAmong(ns, alloc.Properties.ControllerKind, alloc.Properties.Controller, "", alloc.Properties.Labels, peers)
 			}
 			if owns {
 				kept[key] = alloc
@@ -1993,8 +2018,8 @@ func ownedControllers(resp AllocationResponse, namespace string, resources model
 // application's current cost (ownedAllocations), so that the two agree. Kubecost reports a controller
 // without its kind, so a pod is also matched by its controller's name. The namespace's only
 // application (sole) also owns the volumes no pod mounts.
-func ownedDailyPods(resp AllocationResponse, namespace string, resources models.ManagedResources, sole bool) AllocationResponse {
-	owned := ownedAllocations(resp, namespace, resources, sole)
+func ownedDailyPods(resp AllocationResponse, namespace string, resources, peers models.ManagedResources, sole bool) AllocationResponse {
+	owned := ownedAllocations(resp, namespace, resources, peers, sole)
 	for i, allocations := range resp.Data {
 		for key, alloc := range allocations {
 			if _, ok := owned.Data[i][key]; ok || isVirtualAllocation(key) {
@@ -2005,7 +2030,7 @@ func ownedDailyPods(resp AllocationResponse, namespace string, resources models.
 				ns = namespace
 			}
 			byName := alloc.Properties.ControllerKind == "" && alloc.Properties.Controller != "" &&
-				resources.OwnsController(ns, alloc.Properties.Controller, alloc.Properties.Labels)
+				resources.OwnsControllerAmong(ns, alloc.Properties.Controller, alloc.Properties.Labels, peers)
 			if byName || sole && isUnmountedEntry(alloc, namespace) {
 				owned.Data[i][key] = alloc
 			}

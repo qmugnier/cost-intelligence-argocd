@@ -208,6 +208,10 @@ var workloadKinds = map[string]bool{
 	"job": true, "cronjob": true, "rollout": true, "pod": true,
 }
 
+// IsWorkloadKind reports whether kind is one a pod's controller identifies directly (Deployment,
+// StatefulSet, Rollout, ...), as opposed to a custom resource an operator turns into workloads.
+func IsWorkloadKind(kind string) bool { return workloadKinds[strings.ToLower(kind)] }
+
 // labelKey normalises a label name the way the cost backends report it.
 func labelKey(k string) string {
 	return strings.Map(func(r rune) rune {
@@ -377,13 +381,37 @@ func ConfigureUnownedPodLabels(spec string) error {
 // Deployment's or Rollout's ReplicaSet and a CronJob's Jobs match by the suffix they add. Labels, which
 // the allocation carries, then name an operator's custom resource as for a pod (OwnerOfLabeled).
 func (rs ManagedResources) OwnsController(namespace, controller string, labels map[string]string) bool {
+	return rs.OwnsControllerAmong(namespace, controller, labels, nil)
+}
+
+// OwnsControllerAmong is OwnsController for an application that shares its namespace with others, whose
+// resources are peers: an allocation matched only by its labels is left alone when a peer owns it too
+// (OwnsPodAmong).
+func (rs ManagedResources) OwnsControllerAmong(namespace, controller string, labels map[string]string, peers ManagedResources) bool {
+	if rs.ownsControllerByName(namespace, controller, true) {
+		return true
+	}
+	// A name another kind of resource shares (an HTTPRoute called like the Deployment) is no claim on
+	// the controller of a peer's workload of that name.
+	if rs.ownsControllerByName(namespace, controller, false) && !peers.ownsControllerByName(namespace, controller, true) {
+		return true
+	}
+	if !rs.OwnsPodLabeled(namespace, "", "", "", labels) {
+		return false
+	}
+	return !peers.ownsControllerByName(namespace, controller, true) && !peers.OwnsPodLabeled(namespace, "", "", "", labels)
+}
+
+// ownsControllerByName is OwnsController without the labels, and with workloadsOnly only for the
+// resources that are workloads.
+func (rs ManagedResources) ownsControllerByName(namespace, controller string, workloadsOnly bool) bool {
 	if controller != "" {
 		for _, r := range rs {
 			if r.Namespace != "" && r.Namespace != namespace {
 				continue
 			}
 			rk := strings.ToLower(r.Kind)
-			if rk == "pod" {
+			if rk == "pod" || workloadsOnly && !workloadKinds[rk] {
 				continue
 			}
 			if controller == r.Name {
@@ -404,13 +432,33 @@ func (rs ManagedResources) OwnsController(namespace, controller string, labels m
 			}
 		}
 	}
-	return rs.OwnsPodLabeled(namespace, "", "", "", labels)
+	return false
 }
 
 // OwnsPodLabeled is OwnsPod for a pod whose labels the cost backend reports.
 func (rs ManagedResources) OwnsPodLabeled(namespace, controllerKind, controller, pod string, labels map[string]string) bool {
 	_, ok := rs.OwnerOfLabeled(namespace, controllerKind, controller, pod, labels)
 	return ok
+}
+
+// OwnsPodAmong is OwnsPodLabeled for an application that shares its namespace with others, whose
+// resources are peers. A pod the application owns by its controller or its name is its own. A pod it
+// matches only by its labels is left alone when a peer owns it too, by its controller, its name or its
+// labels: two applications listing an HTTPRoute and a Deployment both called web would otherwise both
+// claim the Deployment's pods, and their costs would add up to more than the namespace. A pod that
+// several applications match only by label belongs to none of them and stays in the namespace.
+func (rs ManagedResources) OwnsPodAmong(namespace, controllerKind, controller, pod string, labels map[string]string, peers ManagedResources) bool {
+	if _, ok := rs.OwnerOf(namespace, controllerKind, controller, pod); ok {
+		return true
+	}
+	if _, ok := rs.OwnerOfLabeled(namespace, controllerKind, controller, pod, labels); !ok {
+		return false
+	}
+	if _, taken := peers.OwnerOfLabeled(namespace, controllerKind, controller, pod, labels); taken {
+		return false
+	}
+	// Kubecost reports a controller's name but not its kind: a peer then owns the pod by that name.
+	return controllerKind != "" || !peers.ownsControllerByName(namespace, controller, true)
 }
 
 // OwnerOfLabeled is OwnerOf, then, for a pod no resource owns by its controller or its name, by its
